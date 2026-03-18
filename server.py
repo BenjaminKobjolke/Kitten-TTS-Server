@@ -292,6 +292,7 @@ async def get_ui_initial_data():
             "config": full_config,
             "presets": loaded_presets,
             "initial_gen_result": initial_gen_result_placeholder,
+            "available_voices": engine.KITTEN_TTS_VOICES,
         }
     except Exception as e:
         logger.error(f"Error preparing initial UI data for API: {e}", exc_info=True)

@@ -26,8 +26,10 @@ voices_data: Optional[dict] = None
 phonemizer_backend: Optional[phonemizer.backend.EspeakBackend] = None
 text_cleaner: Optional["TextCleaner"] = None
 MODEL_LOADED: bool = False
+voice_aliases: dict = {}
+speed_priors: dict = {}
 
-# KittenTTS available voices
+# KittenTTS available voices (populated dynamically after model load)
 KITTEN_TTS_VOICES = [
     "expr-voice-2-m",
     "expr-voice-2-f",
@@ -81,7 +83,7 @@ def load_model() -> bool:
     Returns:
         bool: True if the model was loaded successfully, False otherwise.
     """
-    global onnx_session, voices_data, phonemizer_backend, text_cleaner, MODEL_LOADED
+    global onnx_session, voices_data, phonemizer_backend, text_cleaner, MODEL_LOADED, voice_aliases, speed_priors, KITTEN_TTS_VOICES
 
     if MODEL_LOADED:
         logger.info("KittenTTS model is already loaded.")
@@ -115,8 +117,10 @@ def load_model() -> bool:
         with open(config_path, "r") as f:
             model_config = json.load(f)
 
-        if model_config.get("type") != "ONNX1":
-            raise ValueError("Unsupported model type. Expected ONNX1.")
+        supported_types = {"ONNX1", "ONNX2"}
+        model_type = model_config.get("type")
+        if model_type not in supported_types:
+            raise ValueError(f"Unsupported model type: '{model_type}'. Expected one of: {supported_types}")
 
         # Download model and voices files
         model_path = hf_hub_download(
@@ -134,6 +138,18 @@ def load_model() -> bool:
         # Load voices data
         voices_data = np.load(voices_path)
         logger.info(f"Loaded voices data with keys: {list(voices_data.keys())}")
+
+        # Parse ONNX2 config fields
+        voice_aliases = model_config.get("voice_aliases", {})
+        speed_priors = model_config.get("speed_priors", {})
+        if voice_aliases:
+            logger.info(f"Loaded voice aliases: {voice_aliases}")
+        if speed_priors:
+            logger.info(f"Loaded speed priors: {speed_priors}")
+
+        # Build available voices list from loaded voice data + aliases
+        KITTEN_TTS_VOICES = list(voices_data.keys()) + list(voice_aliases.keys())
+        logger.info(f"Available voices: {KITTEN_TTS_VOICES}")
 
         # Determine device and providers and configure for optimal performance
         device_setting = config_manager.get_string("tts_engine.device", "auto").lower()
@@ -279,8 +295,22 @@ def load_model() -> bool:
         voices_data = None
         phonemizer_backend = None
         text_cleaner = None
+        voice_aliases = {}
+        speed_priors = {}
         MODEL_LOADED = False
         return False
+
+
+def _get_voice_embedding(voice: str, text_length: int) -> np.ndarray:
+    """Get voice embedding, handling both ONNX1 (1D) and ONNX2 (2D) formats."""
+    embedding = voices_data[voice]
+    if embedding.ndim == 1:
+        # ONNX1: single embedding, just add batch dim
+        return np.expand_dims(embedding, axis=0).astype(np.float32)
+    else:
+        # ONNX2: multiple reference embeddings, select one based on text length
+        ref_id = min(text_length, embedding.shape[0] - 1)
+        return embedding[ref_id:ref_id+1].astype(np.float32)
 
 
 def synthesize(
@@ -309,6 +339,19 @@ def synthesize(
             f"Voice '{voice}' not available. Available voices: {KITTEN_TTS_VOICES}"
         )
         return None, None
+
+    # Resolve voice alias to internal voice ID
+    resolved_voice = voice_aliases.get(voice, voice)
+    if resolved_voice != voice:
+        logger.debug(f"Resolved voice alias '{voice}' -> '{resolved_voice}'")
+
+    # Apply speed prior for this voice if available
+    prior = speed_priors.get(resolved_voice, 1.0)
+    if prior != 1.0:
+        speed = speed * prior
+        logger.debug(f"Applied speed prior {prior} for voice '{resolved_voice}', effective speed: {speed}")
+
+    voice = resolved_voice
 
     try:
         logger.debug(f"Synthesizing with voice='{voice}', speed={speed}")
@@ -343,7 +386,7 @@ def synthesize(
             # --- I/O Binding Path for GPU using NumPy ---
             # Create standard NumPy arrays on the CPU first.
             input_ids_np = np.array([tokens], dtype=np.int64)
-            ref_s_np = voices_data[voice].astype(np.float32)  # Ensure correct type
+            ref_s_np = _get_voice_embedding(voice, len(tokens))
             speed_array_np = np.array([speed], dtype=np.float32)
 
             # Create OrtValues from the NumPy arrays. I/O binding will handle the copy to GPU.
@@ -379,7 +422,7 @@ def synthesize(
         else:
             # --- Standard Path for CPU ---
             input_ids = np.array([tokens], dtype=np.int64)
-            ref_s = voices_data[voice]
+            ref_s = _get_voice_embedding(voice, len(tokens))
             speed_array = np.array([speed], dtype=np.float32)
 
             onnx_inputs = {
