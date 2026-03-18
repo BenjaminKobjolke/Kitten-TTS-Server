@@ -1,7 +1,8 @@
 # requirements-nvidia.txt (NVIDIA GPU Installation)
 
 # KittenTTS Core Dependencies (GPU Version)
-onnxruntime-gpu
+# Note: onnxruntime-gpu, torch, and torchaudio are installed separately
+# by install_gpu.bat to ensure correct CUDA versions.
 soundfile
 numpy
 huggingface_hub
@@ -27,5 +28,3 @@ hf-transfer
 pydub
 librosa
 praat-parselmouth
-torch
-torchaudio
