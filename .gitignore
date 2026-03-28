@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv/
+model_cache/
+outputs/
+logs/
+*.tmp
+*.bak
+config.yaml.tmp
+config.yaml.bak

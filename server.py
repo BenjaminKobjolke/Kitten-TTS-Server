@@ -34,7 +34,7 @@ from fastapi.responses import (
     FileResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# from fastapi.templating import Jinja2Templates  # Not used, serving static HTML
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Internal Project Imports ---
@@ -172,7 +172,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=get_ui_title(),
     description="Text-to-Speech server with advanced UI and API capabilities.",
-    version="2.0.2",  # Version Bump
+    version="3.0.0",  # Multi-model support
     lifespan=lifespan,
 )
 
@@ -234,7 +234,7 @@ except RuntimeError as e_mount_outputs:
         "Output files may not be accessible via URL."
     )
 
-templates = Jinja2Templates(directory=str(ui_static_path))
+# templates removed - serving index.html as static file
 
 # --- API Endpoints ---
 
@@ -245,7 +245,13 @@ async def get_web_ui(request: Request):
     """Serves the main web interface (index.html)."""
     logger.info("Request received for main UI page ('/').")
     try:
-        return templates.TemplateResponse("index.html", {"request": request})
+        index_path = ui_static_path / "index.html"
+        if index_path.is_file():
+            return FileResponse(index_path, media_type="text/html")
+        return HTMLResponse(
+            "<html><body><h1>Not Found</h1><p>index.html not found.</p></body></html>",
+            status_code=404,
+        )
     except Exception as e_render:
         logger.error(f"Error rendering main UI page: {e_render}", exc_info=True)
         return HTMLResponse(
@@ -255,16 +261,45 @@ async def get_web_ui(request: Request):
         )
 
 
+# --- API Endpoint for Model Information ---
+@app.get("/api/model-info", tags=["Model Information"])
+async def get_model_info_endpoint():
+    """Returns detailed information about the currently loaded TTS model."""
+    logger.debug("Request received for /api/model-info")
+    try:
+        return engine.get_model_info()
+    except Exception as e:
+        logger.error(f"Error getting model info: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve model information")
+
+
+@app.get("/api/model-registry", tags=["Model Information"])
+async def get_model_registry_endpoint():
+    """Returns the full list of available models for the UI dropdown."""
+    return engine.get_model_registry()
+
+
+@app.get("/api/model-status", tags=["Model Information"])
+async def get_model_status_endpoint():
+    """Returns the current download/loading progress for model switching."""
+    return engine.get_download_status()
+
+
 # --- API Endpoint for Initial UI Data ---
 @app.get("/api/ui/initial-data", tags=["UI Helpers"])
 async def get_ui_initial_data():
     """
     Provides all necessary initial data for the UI to render,
-    including configuration, file lists, and presets.
+    including configuration, file lists, presets, and model information.
     """
     logger.info("Request received for /api/ui/initial-data.")
     try:
         full_config = get_full_config_for_template()
+
+        # Get model information for UI
+        model_info = engine.get_model_info()
+        model_registry = engine.get_model_registry()
+
         loaded_presets = []
         presets_file = ui_static_path / "presets.yaml"
         if presets_file.exists():
@@ -292,6 +327,9 @@ async def get_ui_initial_data():
             "config": full_config,
             "presets": loaded_presets,
             "initial_gen_result": initial_gen_result_placeholder,
+            "model_info": model_info,
+            "model_registry": model_registry,
+            "available_voices": engine.get_available_voices(),
         }
     except Exception as e:
         logger.error(f"Error preparing initial UI data for API: {e}", exc_info=True)
@@ -372,15 +410,53 @@ async def reset_settings_endpoint():
     "/restart_server", response_model=UpdateStatusResponse, tags=["Configuration"]
 )
 async def restart_server_endpoint():
-    """Attempts to trigger a server restart."""
-    logger.info("Request received for /restart_server.")
-    message = (
-        "Server restart initiated. If running locally without a process manager, "
-        "you may need to restart manually. For managed environments (Docker, systemd), "
-        "the manager should handle the restart."
-    )
-    logger.warning(message)
-    return UpdateStatusResponse(message=message, restart_needed=True)
+    """
+    Triggers an async hot-swap of the TTS model engine.
+    Returns immediately while the model downloads and loads in the background.
+    The UI polls /api/model-status to track progress.
+    """
+    logger.info("Request received for /restart_server (Async Model Hot-Swap).")
+
+    try:
+        engine.reload_model_async()
+        return UpdateStatusResponse(
+            message="Model reload initiated in background. Poll /api/model-status for progress.",
+            restart_needed=False,
+        )
+    except Exception as e:
+        logger.error(f"Error initiating model hot-swap: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate model reload: {str(e)}",
+        )
+
+
+@app.post("/api/cancel-loading", tags=["Configuration"])
+async def cancel_loading_endpoint():
+    """Cancels any in-progress model loading."""
+    logger.info("Request received for /api/cancel-loading.")
+    cancelled = engine.cancel_loading()
+    if cancelled:
+        return {"message": "Model loading cancellation requested."}
+    return {"message": "No model loading in progress."}
+
+
+@app.post("/api/unload", tags=["Configuration"])
+async def unload_model_endpoint():
+    """
+    Unloads the TTS model and releases all resources.
+    The model will need to be reloaded (via /restart_server) before TTS requests can be processed.
+    """
+    logger.info("Request received for /api/unload (Model Unload).")
+    try:
+        success = engine.unload_model()
+        if success:
+            return {"message": "Model unloaded successfully. Resources released."}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to unload model.")
+    except Exception as e:
+        logger.error(f"Error during model unload: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- TTS Generation Endpoint ---

@@ -1,6 +1,6 @@
 // ui/script.js
 // Client-side JavaScript for the Kitten TTS Server web interface.
-// Handles UI interactions, API communication, audio playback, and settings management.
+// Handles UI interactions, API communication, audio playback, model switching, and settings management.
 
 document.addEventListener('DOMContentLoaded', async function () {
     // --- Global Flags & State ---
@@ -19,13 +19,19 @@ document.addEventListener('DOMContentLoaded', async function () {
     let hideGenerationWarning = false;
     let currentVoice = 'expr-voice-5-m';
 
+    // Model management state
+    let currentModelInfo = null;
+    let modelRegistry = {};
+    let modelChangesPending = false;
+    let selectedModelSelector = '';
+    let modelSwitchPollTimer = null;
+
     const IS_LOCAL_FILE = window.location.protocol === 'file:';
-    // If you always access the server via localhost
     const API_BASE_URL = IS_LOCAL_FILE ? 'http://localhost:8005' : '';
 
     const DEBOUNCE_DELAY_MS = 750;
 
-    // KittenTTS available voices
+    // Fallback voice list
     const KITTEN_TTS_VOICES = [
         'expr-voice-2-m', 'expr-voice-2-f', 'expr-voice-3-m', 'expr-voice-3-f',
         'expr-voice-4-m', 'expr-voice-4-f', 'expr-voice-5-m', 'expr-voice-5-f'
@@ -70,6 +76,24 @@ document.addEventListener('DOMContentLoaded', async function () {
     const generationWarningAcknowledgeBtn = document.getElementById('generation-warning-acknowledge');
     const hideGenerationWarningCheckbox = document.getElementById('hide-generation-warning-checkbox');
 
+    // Model management DOM elements
+    const modelSelect = document.getElementById('model-select');
+    const modelStatusIndicator = document.getElementById('model-status-indicator');
+    const modelStatusText = document.getElementById('model-status-text');
+    const applyModelBtn = document.getElementById('apply-model-btn');
+    const modelActionRow = document.getElementById('model-action-row');
+    const modelPendingText = document.getElementById('model-pending-text');
+    const modelIndicator = document.getElementById('model-indicator');
+    const modelBadgeText = document.getElementById('model-badge-text');
+
+    // Model switch modal elements
+    const modelSwitchModal = document.getElementById('model-switch-modal');
+    const modelSwitchTitle = document.getElementById('model-switch-title');
+    const modelSwitchPhase = document.getElementById('model-switch-phase');
+    const modelSwitchDetail = document.getElementById('model-switch-detail');
+    const modelSwitchProgress = document.getElementById('model-switch-progress');
+    const modelSwitchPct = document.getElementById('model-switch-pct');
+
     // --- Utility Functions ---
     function showNotification(message, type = 'info', duration = 5000) {
         if (!notificationArea) return null;
@@ -83,12 +107,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         const notificationDiv = document.createElement('div');
         notificationDiv.className = `notification-base ${typeClassMap[type] || 'notification-info'}`;
         notificationDiv.setAttribute('role', 'alert');
-        // Create content wrapper
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'flex items-start flex-grow';
         contentWrapper.innerHTML = `${icons[type] || icons['info']} <span class="block sm:inline">${message}</span>`;
 
-        // Create close button
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
         closeButton.className = 'ml-auto -mx-1.5 -my-1.5 bg-transparent rounded-lg p-1.5 inline-flex h-8 w-8 items-center justify-center text-current hover:bg-slate-200 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 flex-shrink-0';
@@ -100,7 +122,6 @@ document.addEventListener('DOMContentLoaded', async function () {
             setTimeout(() => notificationDiv.remove(), 300);
         };
 
-        // Add both to notification
         notificationDiv.appendChild(contentWrapper);
         notificationDiv.appendChild(closeButton);
         notificationArea.appendChild(notificationDiv);
@@ -112,6 +133,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         const minutes = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
         return `${minutes}:${secs}`;
+    }
+
+    function formatErrorDetail(detail) {
+        if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+        if (typeof detail === 'object') return JSON.stringify(detail);
+        return detail;
     }
 
     // --- Theme Management ---
@@ -168,13 +195,250 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     function debouncedSaveState() {
-        // Do not save anything until the entire UI has finished its initial setup.
         if (!uiReady || !listenersAttached) { return; }
         clearTimeout(saveStateTimeout);
         saveStateTimeout = setTimeout(saveCurrentUiState, DEBOUNCE_DELAY_MS);
     }
 
-    // --- Initial Application Setup ---
+    // ========================================================================
+    // MODEL MANAGEMENT
+    // ========================================================================
+
+    function populateModelDropdown() {
+        if (!modelSelect) return;
+        modelSelect.innerHTML = '';
+        for (const [selector, info] of Object.entries(modelRegistry)) {
+            const option = document.createElement('option');
+            option.value = selector;
+            option.textContent = info.display_name;
+            modelSelect.appendChild(option);
+        }
+    }
+
+    function updateModelUI() {
+        if (!currentModelInfo) return;
+
+        // Update status indicator
+        if (currentModelInfo.loaded) {
+            if (modelStatusIndicator) modelStatusIndicator.className = 'status-dot-green';
+            if (modelStatusText) {
+                const shortDevice = (currentModelInfo.device || 'unknown').toUpperCase();
+                modelStatusText.textContent = `Loaded (${shortDevice})`;
+                modelStatusText.style.cssText = 'font-size:0.75rem; color:#22c55e; white-space:nowrap;';
+            }
+        } else {
+            if (modelStatusIndicator) modelStatusIndicator.className = 'status-dot-red';
+            if (modelStatusText) {
+                modelStatusText.textContent = 'Not loaded';
+                modelStatusText.style.cssText = 'font-size:0.75rem; color:#ef4444; white-space:nowrap;';
+            }
+        }
+
+        // Update dropdown to match loaded model
+        if (modelSelect && !modelChangesPending && currentModelInfo.selector) {
+            modelSelect.value = currentModelInfo.selector;
+            selectedModelSelector = currentModelInfo.selector;
+        }
+
+        // Update navbar badge
+        if (modelIndicator && modelBadgeText) {
+            modelIndicator.classList.remove('hidden');
+            modelBadgeText.textContent = currentModelInfo.display_name || currentModelInfo.selector || '--';
+        }
+    }
+
+    function handleModelSelectChange() {
+        if (!modelSelect) return;
+
+        const newSelector = modelSelect.value;
+        const currentSelector = currentModelInfo?.selector || '';
+
+        if (newSelector !== currentSelector) {
+            modelChangesPending = true;
+
+            // Show the action row with pending message and apply button
+            if (modelActionRow) {
+                modelActionRow.classList.remove('hidden');
+                modelActionRow.style.display = '';
+            }
+
+            // Update status dot to yellow with single-word label
+            if (modelStatusIndicator) modelStatusIndicator.className = 'status-dot-yellow';
+            if (modelStatusText) {
+                modelStatusText.textContent = 'Change pending';
+                modelStatusText.style.cssText = 'font-size:0.75rem; color:#ca8a04; white-space:nowrap;';
+            }
+        } else {
+            modelChangesPending = false;
+            if (modelActionRow) {
+                modelActionRow.classList.add('hidden');
+                modelActionRow.style.display = 'none';
+            }
+            updateModelUI();
+        }
+    }
+
+    function showModelSwitchModal() {
+        if (modelSwitchModal) {
+            modelSwitchModal.style.display = 'flex';
+            modelSwitchModal.classList.remove('hidden', 'opacity-0');
+            modelSwitchModal.dataset.state = 'open';
+        }
+    }
+
+    function hideModelSwitchModal() {
+        if (modelSwitchModal) {
+            modelSwitchModal.classList.add('opacity-0');
+            setTimeout(() => {
+                modelSwitchModal.style.display = 'none';
+                modelSwitchModal.dataset.state = 'closed';
+            }, 300);
+        }
+    }
+
+    function updateModelSwitchModalProgress(status) {
+        if (modelSwitchPhase) modelSwitchPhase.textContent = status.phase || 'Working...';
+        if (modelSwitchDetail) modelSwitchDetail.textContent = status.detail || '';
+        if (modelSwitchProgress) modelSwitchProgress.style.width = `${status.progress_pct || 0}%`;
+        if (modelSwitchPct) modelSwitchPct.textContent = `${status.progress_pct || 0}%`;
+    }
+
+    async function pollModelStatus() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/model-status`);
+            if (!response.ok) return null;
+            return await response.json();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function cancelModelLoading() {
+        try {
+            await fetch(`${API_BASE_URL}/api/cancel-loading`, { method: 'POST' });
+        } catch (e) {
+            console.warn('Cancel request failed:', e);
+        }
+    }
+
+    async function applyModelChange() {
+        if (!modelSelect) return;
+
+        const newSelector = modelSelect.value;
+        const targetInfo = modelRegistry[newSelector];
+        if (!targetInfo) {
+            showNotification('Unknown model selected.', 'error');
+            return;
+        }
+
+        // Show modal immediately
+        if (modelSwitchTitle) modelSwitchTitle.textContent = `Switching to ${targetInfo.display_name}...`;
+        updateModelSwitchModalProgress({ phase: 'Saving configuration...', detail: 'Updating model selection.', progress_pct: 2 });
+        showModelSwitchModal();
+
+        // Disable apply button
+        if (applyModelBtn) applyModelBtn.disabled = true;
+
+        try {
+            // 1. Save the model selector to config
+            const saveResponse = await fetch(`${API_BASE_URL}/save_settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: { repo_id: newSelector } })
+            });
+
+            if (!saveResponse.ok) {
+                const errorResult = await saveResponse.json().catch(() => ({ detail: 'Failed to save' }));
+                throw new Error(formatErrorDetail(errorResult.detail) || 'Failed to save model configuration');
+            }
+
+            updateModelSwitchModalProgress({ phase: 'Configuration saved', detail: 'Initiating model download & load...', progress_pct: 5 });
+
+            // 2. Trigger async restart — returns immediately, loads in background
+            const restartResponse = await fetch(`${API_BASE_URL}/restart_server`, { method: 'POST' });
+            if (!restartResponse.ok) {
+                const errData = await restartResponse.json().catch(() => ({ detail: 'Restart failed' }));
+                throw new Error(formatErrorDetail(errData.detail) || 'Failed to initiate model reload');
+            }
+
+            // 3. Poll for download/load progress until done
+            let pollCount = 0;
+            const maxPolls = 1200; // 10 minutes max (500ms intervals)
+
+            const pollLoop = () => {
+                return new Promise((resolve, reject) => {
+                    const poll = async () => {
+                        try {
+                            const status = await pollModelStatus();
+                            if (status) {
+                                updateModelSwitchModalProgress(status);
+
+                                if (status.error) {
+                                    reject(new Error(status.error));
+                                    return;
+                                }
+
+                                if (status.phase === 'cancelled') {
+                                    reject(new Error('Model loading was cancelled.'));
+                                    return;
+                                }
+
+                                if (!status.active && status.phase === 'complete') {
+                                    resolve(true);
+                                    return;
+                                }
+                            }
+
+                            pollCount++;
+                            if (pollCount >= maxPolls) {
+                                reject(new Error('Model switch timed out after 10 minutes.'));
+                                return;
+                            }
+
+                            setTimeout(poll, 500);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    // Start polling after a brief delay
+                    setTimeout(poll, 300);
+                });
+            };
+
+            await pollLoop();
+
+            // Success!
+            modelChangesPending = false;
+            hideModelSwitchModal();
+            showNotification(`Model switched to ${targetInfo.display_name} successfully!`, 'success', 5000);
+            await fetchInitialData();
+
+        } catch (error) {
+            console.error('Error applying model change:', error);
+            hideModelSwitchModal();
+
+            const isCancelled = error.message && error.message.toLowerCase().includes('cancel');
+            if (isCancelled) {
+                showNotification('Model switch cancelled.', 'info', 3000);
+            } else {
+                showNotification(`Model switch failed: ${error.message}`, 'error', 0);
+            }
+
+            // Refresh UI to show current state
+            try { await fetchInitialData(); } catch (e) { /* ignore */ }
+        } finally {
+            if (applyModelBtn) applyModelBtn.disabled = false;
+            if (!modelChangesPending && modelActionRow) {
+                modelActionRow.classList.add('hidden');
+                modelActionRow.style.display = 'none';
+            }
+        }
+    }
+
+    // ========================================================================
+    // INITIAL SETUP & DATA FETCHING
+    // ========================================================================
+
     function initializeApplication() {
         const preferredTheme = localStorage.getItem('uiTheme') || currentUiState.theme || 'dark';
         applyTheme(preferredTheme);
@@ -183,6 +447,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (appTitleLink) appTitleLink.textContent = pageTitle;
         if (ttsFormHeader) ttsFormHeader.textContent = `Generate Speech`;
         loadInitialUiState();
+        populateModelDropdown();
+        updateModelUI();
         populateVoices();
         populatePresets();
         displayServerConfiguration();
@@ -206,11 +472,12 @@ document.addEventListener('DOMContentLoaded', async function () {
             currentConfig = data.config || {};
             currentUiState = currentConfig.ui_state || {};
             appPresets = data.presets || [];
+            currentModelInfo = data.model_info || null;
+            modelRegistry = data.model_registry || {};
             availableVoices = data.available_voices || KITTEN_TTS_VOICES;
             hideGenerationWarning = currentUiState.hide_generation_warning || false;
-            currentVoice = currentUiState.last_voice || 'expr-voice-5-m';
+            currentVoice = currentUiState.last_voice || (currentModelInfo?.default_voice) || 'expr-voice-5-m';
 
-            // This now ONLY sets values. It does NOT attach state-saving listeners.
             initializeApplication();
 
         } catch (error) {
@@ -221,9 +488,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 currentUiState = currentConfig.ui_state;
                 availableVoices = KITTEN_TTS_VOICES;
             }
-            initializeApplication(); // Attempt to init in a degraded state
+            initializeApplication();
         } finally {
-            // --- PHASE 2: Attach listeners and enable UI readiness ---
             setTimeout(() => {
                 attachStateSavingListeners();
                 listenersAttached = true;
@@ -251,7 +517,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (hideGenerationWarningCheckbox) hideGenerationWarningCheckbox.checked = hideGenerationWarning;
 
         if (textArea && !textArea.value && appPresets && appPresets.length > 0) {
-            const defaultPreset = appPresets.find(p => p.name === "Standard Narration") || appPresets;
+            const defaultPreset = appPresets.find(p => p.name === "Standard Narration") || appPresets[0];
             if (defaultPreset) applyPreset(defaultPreset, false);
         }
     }
@@ -272,33 +538,42 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         if (languageSelect) languageSelect.addEventListener('change', debouncedSaveState);
         if (outputFormatSelect) outputFormatSelect.addEventListener('change', debouncedSaveState);
+
+        // Model management listeners
+        if (modelSelect) modelSelect.addEventListener('change', handleModelSelectChange);
+        if (applyModelBtn) applyModelBtn.addEventListener('click', applyModelChange);
     }
 
     // --- Dynamic UI Population ---
+    function formatVoiceDisplayName(voice) {
+        // All voices now have human-friendly names
+        return voice;
+    }
+
     function populateVoices() {
         if (!voiceSelect) return;
-        const currentSelectedValue = voiceSelect.value;
         voiceSelect.innerHTML = '<option value="none">-- Select Voice --</option>';
 
         availableVoices.forEach(voice => {
             const option = document.createElement('option');
             option.value = voice;
-            // Format display name
-            const displayName = voice.replace('expr-voice-', 'Voice ').replace('-m', ' (Male)').replace('-f', ' (Female)');
-            option.textContent = displayName;
+            option.textContent = formatVoiceDisplayName(voice);
             voiceSelect.appendChild(option);
         });
 
+        // Try to select the last used voice, fall back to default for the model
         const lastSelected = currentUiState.last_voice;
-        if (currentSelectedValue !== 'none' && availableVoices.includes(currentSelectedValue)) {
-            voiceSelect.value = currentSelectedValue;
-            currentVoice = currentSelectedValue;
-        } else if (lastSelected && availableVoices.includes(lastSelected)) {
+        const defaultVoice = currentModelInfo?.default_voice || availableVoices[0] || 'expr-voice-5-m';
+
+        if (lastSelected && availableVoices.includes(lastSelected)) {
             voiceSelect.value = lastSelected;
             currentVoice = lastSelected;
-        } else {
-            voiceSelect.value = availableVoices || 'expr-voice-5-m';
-            currentVoice = voiceSelect.value;
+        } else if (availableVoices.includes(defaultVoice)) {
+            voiceSelect.value = defaultVoice;
+            currentVoice = defaultVoice;
+        } else if (availableVoices.length > 0) {
+            voiceSelect.value = availableVoices[0];
+            currentVoice = availableVoices[0];
         }
     }
 
@@ -365,7 +640,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         currentAudioBlobUrl = audioUrl;
 
-        // Ensure the container is clean or re-created
         audioPlayerContainer.innerHTML = `
             <div class="audio-player-card">
                 <div class="p-6 sm:p-8">
@@ -386,14 +660,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                         </div>
                         <div class="audio-player-info text-xs sm:text-sm">
                             Voice: <span id="player-voice" class="font-medium text-indigo-600 dark:text-indigo-400">--</span>
-                            <span class="mx-1">•</span> Gen Time: <span id="player-gen-time" class="font-medium tabular-nums">--s</span>
-                            <span class="mx-1">•</span> Duration: <span id="audio-duration" class="font-medium tabular-nums">--:--</span>
+                            <span class="mx-1">&bull;</span> Gen Time: <span id="player-gen-time" class="font-medium tabular-nums">--s</span>
+                            <span class="mx-1">&bull;</span> Duration: <span id="audio-duration" class="font-medium tabular-nums">--:--</span>
                         </div>
                     </div>
                 </div>
             </div>`;
 
-        // Re-select elements after recreating them
         const waveformDiv = audioPlayerContainer.querySelector('#waveform');
         const playBtn = audioPlayerContainer.querySelector('#play-btn');
         const downloadLink = audioPlayerContainer.querySelector('#download-link');
@@ -412,7 +685,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         if (playerVoiceSpan) {
             const displayVoice = resultDetails.submittedVoice || currentVoice || '--';
-            playerVoiceSpan.textContent = displayVoice.replace('expr-voice-', 'Voice ').replace('-m', ' (Male)').replace('-f', ' (Female)');
+            playerVoiceSpan.textContent = formatVoiceDisplayName(displayVoice);
         }
         if (playerGenTimeSpan) playerGenTimeSpan.textContent = resultDetails.genTime ? `${resultDetails.genTime}s` : '--s';
 
@@ -454,9 +727,11 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // --- TTS Generation Logic ---
     function getTTSFormData() {
+        // Always read voice from dropdown directly to avoid stale currentVoice
+        const selectedVoice = voiceSelect ? voiceSelect.value : currentVoice;
         const jsonData = {
             text: textArea.value,
-            voice: currentVoice,
+            voice: selectedVoice,
             speed: parseFloat(speedSlider.value),
             language: languageSelect.value,
             split_text: splitTextToggle.checked,
@@ -503,7 +778,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
-    // --- Attach main generation event to the button's CLICK ---
+    // --- Attach main generation event ---
     if (generateBtn) {
         generateBtn.addEventListener('click', function (event) {
             event.preventDefault();
@@ -517,12 +792,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                 showNotification("Please enter some text to generate speech.", 'error');
                 return;
             }
-            if (!currentVoice || currentVoice === 'none') {
+            const voiceVal = voiceSelect ? voiceSelect.value : currentVoice;
+            if (!voiceVal || voiceVal === 'none') {
                 showNotification("Please select a voice.", 'error');
                 return;
             }
 
-            // Check for the generation quality warning.
             if (!hideGenerationWarning) {
                 showGenerationWarningModal();
                 return;
@@ -693,18 +968,20 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     if (restartServerBtn) {
         restartServerBtn.addEventListener('click', async () => {
-            if (!confirm("Are you sure you want to restart the server?")) return;
-            updateConfigStatus(restartServerBtn, configStatus, 'Attempting server restart...', 'processing', 0, false);
+            if (!confirm("Are you sure you want to reload the model?")) return;
+            updateConfigStatus(restartServerBtn, configStatus, 'Reloading model...', 'processing', 0, false);
             try {
                 const response = await fetch(`${API_BASE_URL}/restart_server`, {
                     method: 'POST'
                 });
                 const result = await response.json();
-                if (!response.ok) throw new Error(result.detail || 'Server responded with error on restart command');
-                showNotification("Server restart initiated. Please wait a moment for the server to come back online, then refresh the page.", "info", 10000);
+                if (!response.ok) throw new Error(result.detail || 'Server responded with error');
+                showNotification(result.message || "Model reloaded successfully.", "success", 5000);
+                await fetchInitialData();
+                updateConfigStatus(restartServerBtn, configStatus, 'Model reloaded.', 'success', 5000);
             } catch (error) {
-                showNotification(`Server restart command failed: ${error.message}`, "error");
-                updateConfigStatus(restartServerBtn, configStatus, `Restart failed.`, 'error', 5000, true);
+                showNotification(`Model reload failed: ${error.message}`, "error");
+                updateConfigStatus(restartServerBtn, configStatus, `Reload failed.`, 'error', 5000, true);
             }
         });
     }

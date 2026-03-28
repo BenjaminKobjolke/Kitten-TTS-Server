@@ -2308,3 +2308,60 @@ input[type="range"].slider-base::-moz-range-thumb {
     border-color: #64748b;
     /* hover:border-slate-500 */
 }
+
+/* --- Model Selection & Status --- */
+.model-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    background-color: #e0e7ff;
+    border: 1px solid #c7d2fe;
+}
+
+.dark .model-badge {
+    background-color: rgba(79, 70, 229, 0.2);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.status-dot-green {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #22c55e;
+}
+
+.status-dot-yellow {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #eab308;
+}
+
+.status-dot-red {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #ef4444;
+}
+
+.status-dot-neutral {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #94a3b8;
+}
+
+/* Model switch progress bar */
+#model-switch-progress {
+    background-color: #4f46e5;
+    transition: width 0.3s ease;
+}
+
+.dark #model-switch-progress {
+    background-color: #6366f1;
+}
