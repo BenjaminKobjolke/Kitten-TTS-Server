@@ -8,3 +8,4 @@ logs/
 *.bak
 config.yaml.tmp
 config.yaml.bak
+.claude/
