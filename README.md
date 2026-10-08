@@ -500,6 +500,16 @@ All server settings are managed in the `config.yaml` file. It's created automati
 *   `generation_defaults.speed`: Default speech speed (1.0 is normal).
 *   `audio_output.format`: Default audio format (`wav`, `mp3`, `opus`).
 
+## Use as ai-chat-data-server tool
+
+The repo is also an external tool for `ai-chat-data-server` (headless, no web UI). Setup: `uv sync` (creates `.venv` from `pyproject.toml`; the `venv/` + `start.bat` web UI setup is unaffected).
+
+*   **Manifest:** `dataserver-tool.json` (name `kitten-tts`, `output: file`, voices, languages `en`). Point the data server's `settings.ini` `[external_tools]` entry `kitten-tts` at this folder.
+*   **CLI** `dataserver_cli.py`:
+    *   `--check` loads the model, exit 0 on success.
+    *   `--text "..." --out DIR [--lang en] [--voice Bruno] [--speed 1.1]` writes `DIR/speech.mp3`; errors go to stderr with exit 1. Only `en`; voice one of Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo; speed 0.5–2.0. Empty values use the defaults.
+    *   `--serve` keeps the model loaded. JSON lines: prints `{"ready": true}` once, then for each stdin line `{"text", "out", "lang", "voice", "speed"}` answers `{"ok": true}` or `{"ok": false, "error": "..."}`. Library output goes to stderr; EOF exits.
+
 ## 🛠️ Troubleshooting
 
 *   **Phonemizer / eSpeak Errors:**

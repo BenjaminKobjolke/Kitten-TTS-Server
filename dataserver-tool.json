@@ -1,0 +1,11 @@
+{
+  "name": "kitten-tts",
+  "description": "Text to speech (KittenTTS, English) as MP3",
+  "command": ["uv", "run", "python", "dataserver_cli.py", "--text", "{text}", "--out", "{out}", "--lang", "{lang}", "--voice", "{voice}", "--speed", "{speed}"],
+  "serve_command": ["uv", "run", "python", "dataserver_cli.py", "--serve"],
+  "check_command": ["uv", "run", "python", "dataserver_cli.py", "--check"],
+  "output": "file",
+  "voices": ["Bella", "Jasper", "Luna", "Bruno", "Rosie", "Hugo", "Kiki", "Leo"],
+  "languages": ["en"],
+  "timeout_seconds": 900
+}
