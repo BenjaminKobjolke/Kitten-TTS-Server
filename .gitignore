@@ -9,3 +9,5 @@ logs/
 config.yaml.tmp
 config.yaml.bak
 .claude/
+.venv/
+claude-plans
