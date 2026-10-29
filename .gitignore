@@ -11,3 +11,11 @@ config.yaml.bak
 .claude/
 .venv/
 claude-plans
+tickets/
+HANDOFF.md
+PLAN.md
+PLAN_*.md
+graphify-out/
+tmp/commit_msg.tmp
+code_analysis_results/
+.reasonix/
