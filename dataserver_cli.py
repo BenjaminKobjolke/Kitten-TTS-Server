@@ -44,7 +44,14 @@ def synth(text, out, lang="", voice="", speed="", **_unused):
     parts = []
     sample_rate = None
     for chunk in utils.chunk_text_by_sentences(text, CHUNK_SIZE):
-        audio, sample_rate = engine.synthesize(chunk, voice, speed)
+        try:
+            audio, sample_rate = engine.synthesize(
+                chunk, voice, speed, raise_on_error=True
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"synthesis failed for chunk {chunk[:40]!r}: {e}"
+            ) from e
         if audio is None:
             raise RuntimeError(f"synthesis failed for chunk {chunk[:40]!r}")
         parts.append(audio)

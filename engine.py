@@ -23,6 +23,7 @@ import espeakng_loader
 from config import config_manager
 
 logger = logging.getLogger(__name__)
+MODEL_TOKEN_LIMIT = 500
 
 # --- Model Registry ---
 # Maps friendly selector names to HuggingFace repo IDs, voice lists, and metadata.
@@ -304,6 +305,48 @@ def basic_english_tokenize(text: str):
 
     tokens = re.findall(r"\w+|[^\w\s]", text)
     return tokens
+
+
+def _phoneme_token_chunks(phonemes: str) -> List[List[int]]:
+    """Convert phonemes into model-sized token groups without splitting words."""
+    if text_cleaner is None:
+        raise RuntimeError("Text cleaner is not initialized")
+
+    word_tokens = basic_english_tokenize(phonemes)
+    chunks: List[List[int]] = []
+    current_words: List[str] = []
+
+    def append_chunk(words: List[str]) -> None:
+        token_ids = text_cleaner(" ".join(words))
+        chunks.append([0, *token_ids, 0])
+
+    for word in word_tokens:
+        candidate = current_words + [word]
+        candidate_ids = text_cleaner(" ".join(candidate))
+        if len(candidate_ids) + 2 <= MODEL_TOKEN_LIMIT:
+            current_words = candidate
+            continue
+
+        if current_words:
+            append_chunk(current_words)
+            current_words = []
+
+        word_ids = text_cleaner(word)
+        if len(word_ids) + 2 <= MODEL_TOKEN_LIMIT:
+            current_words = [word]
+            continue
+
+        # A single unbroken token has no word boundary to use; split its symbols
+        # so the model still never receives an over-limit sequence.
+        symbol_limit = MODEL_TOKEN_LIMIT - 2
+        chunks.extend(
+            [[0, *word_ids[i : i + symbol_limit], 0]]
+            for i in range(0, len(word_ids), symbol_limit)
+        )
+
+    if current_words:
+        append_chunk(current_words)
+    return chunks
 
 
 def _init_espeak():
@@ -683,7 +726,7 @@ def reload_model() -> bool:
 
 
 def synthesize(
-    text: str, voice: str, speed: float = 1.0
+    text: str, voice: str, speed: float = 1.0, *, raise_on_error: bool = False
 ) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Synthesizes audio from text using the loaded KittenTTS model.
@@ -749,52 +792,53 @@ def synthesize(
         phonemizer_logger.setLevel(original_level)
 
         # Process phonemes to get token IDs
-        phonemes = basic_english_tokenize(phonemes_list[0])
-        phonemes = " ".join(phonemes)
-        tokens = text_cleaner(phonemes)
-
-        # Add start and end tokens
-        tokens.insert(0, 0)
-        tokens.append(0)
+        phonemes = " ".join(basic_english_tokenize(phonemes_list[0]))
+        token_chunks = _phoneme_token_chunks(phonemes)
 
         # Determine the execution device
         provider = onnx_session.get_providers()[0]
+        audio_segments = []
 
-        if provider == "CUDAExecutionProvider":
-            # GPU inference with I/O Binding
-            input_ids_np = np.array([tokens], dtype=np.int64)
-            ref_s_np = voice_embedding
-            speed_array_np = np.array([speed], dtype=np.float32)
+        for tokens in token_chunks:
+            if provider == "CUDAExecutionProvider":
+                # GPU inference with I/O Binding
+                input_ids_np = np.array([tokens], dtype=np.int64)
+                ref_s_np = voice_embedding
+                speed_array_np = np.array([speed], dtype=np.float32)
 
-            input_ids_ort = ort.OrtValue.ortvalue_from_numpy(input_ids_np, "cuda", 0)
-            ref_s_ort = ort.OrtValue.ortvalue_from_numpy(ref_s_np, "cuda", 0)
-            speed_array_ort = ort.OrtValue.ortvalue_from_numpy(speed_array_np, "cuda", 0)
+                input_ids_ort = ort.OrtValue.ortvalue_from_numpy(input_ids_np, "cuda", 0)
+                ref_s_ort = ort.OrtValue.ortvalue_from_numpy(ref_s_np, "cuda", 0)
+                speed_array_ort = ort.OrtValue.ortvalue_from_numpy(speed_array_np, "cuda", 0)
 
-            io_binding = onnx_session.io_binding()
-            io_binding.bind_ortvalue_input("input_ids", input_ids_ort)
-            io_binding.bind_ortvalue_input("style", ref_s_ort)
-            io_binding.bind_ortvalue_input("speed", speed_array_ort)
+                io_binding = onnx_session.io_binding()
+                io_binding.bind_ortvalue_input("input_ids", input_ids_ort)
+                io_binding.bind_ortvalue_input("style", ref_s_ort)
+                io_binding.bind_ortvalue_input("speed", speed_array_ort)
 
-            output_name = onnx_session.get_outputs()[0].name
-            io_binding.bind_output(output_name, "cuda")
+                output_name = onnx_session.get_outputs()[0].name
+                io_binding.bind_output(output_name, "cuda")
 
-            onnx_session.run_with_iobinding(io_binding)
-            output_ortvalue = io_binding.get_outputs()[0]
-            audio = output_ortvalue.numpy()
+                onnx_session.run_with_iobinding(io_binding)
+                output_ortvalue = io_binding.get_outputs()[0]
+                audio_segments.append(output_ortvalue.numpy())
 
-        else:
-            # CPU inference
-            input_ids = np.array([tokens], dtype=np.int64)
-            ref_s = voice_embedding
-            speed_array = np.array([speed], dtype=np.float32)
+            else:
+                # CPU inference
+                input_ids = np.array([tokens], dtype=np.int64)
+                ref_s = voice_embedding
+                speed_array = np.array([speed], dtype=np.float32)
 
-            onnx_inputs = {
-                "input_ids": input_ids,
-                "style": ref_s,
-                "speed": speed_array,
-            }
-            outputs = onnx_session.run(None, onnx_inputs)
-            audio = outputs[0]
+                onnx_inputs = {
+                    "input_ids": input_ids,
+                    "style": ref_s,
+                    "speed": speed_array,
+                }
+                outputs = onnx_session.run(None, onnx_inputs)
+                audio_segments.append(outputs[0])
+
+        if not audio_segments:
+            raise ValueError("Text produced no model tokens")
+        audio = np.concatenate(audio_segments, axis=-1)
 
         sample_rate = 24000
 
@@ -805,6 +849,8 @@ def synthesize(
 
     except Exception as e:
         logger.error(f"Error during KittenTTS synthesis: {e}", exc_info=True)
+        if raise_on_error:
+            raise
         return None, None
 
 

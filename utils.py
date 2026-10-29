@@ -942,32 +942,48 @@ def split_into_sentences(text: str) -> List[str]:
         current_position = 0
         for i, bullet_match in enumerate(bullet_point_matches):
             bullet_actual_start_index = bullet_match.start()
-            if i == 0 and bullet_actual_start_index > current_position:
-                pre_bullet_segment = text[
+            if i + 1 < len(bullet_point_matches):
+                next_bullet_start_index = bullet_point_matches[i + 1].start()
+            else:
+                next_bullet_start_index = len(text)
+
+            if current_position < bullet_actual_start_index:
+                intervening_segment = text[
                     current_position:bullet_actual_start_index
                 ].strip()
-                if pre_bullet_segment:
+                if intervening_segment:
                     processed_sentences.extend(
-                        s for s in _split_text_by_punctuation(pre_bullet_segment) if s
+                        s
+                        for s in _split_text_by_punctuation(intervening_segment)
+                        if s
                     )
 
-            next_bullet_start_index = (
-                bullet_point_matches[i + 1].start()
-                if i + 1 < len(bullet_point_matches)
-                else len(text)
+            bullet_and_gap = text[
+                bullet_actual_start_index:next_bullet_start_index
+            ]
+            paragraph_end = re.search(
+                r"\n[ \t]*\n|^[ \t]*#{1,6}(?:[ \t]+|$)",
+                bullet_and_gap,
+                re.MULTILINE,
             )
+            if paragraph_end:
+                next_bullet_start_index = (
+                    bullet_actual_start_index + paragraph_end.start()
+                )
             bullet_item_segment = text[
                 bullet_actual_start_index:next_bullet_start_index
             ].strip()
             if bullet_item_segment:
-                processed_sentences.append(bullet_item_segment)
+                processed_sentences.extend(
+                    s for s in _split_text_by_punctuation(bullet_item_segment) if s
+                )
             current_position = next_bullet_start_index
 
         if current_position < len(text):
-            post_bullet_segment = text[current_position:].strip()
-            if post_bullet_segment:
+            trailing_segment = text[current_position:].strip()
+            if trailing_segment:
                 processed_sentences.extend(
-                    s for s in _split_text_by_punctuation(post_bullet_segment) if s
+                    s for s in _split_text_by_punctuation(trailing_segment) if s
                 )
         return [s for s in processed_sentences if s]
     else:
