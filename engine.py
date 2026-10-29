@@ -15,10 +15,6 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 import phonemizer
 
-# This loader can be problematic on Linux, we will bypass it with system-installed eSpeak.
-# We still import it as it's a dependency, but we will avoid calling it directly where possible.
-import espeakng_loader
-
 # Import the singleton config_manager
 from config import config_manager
 

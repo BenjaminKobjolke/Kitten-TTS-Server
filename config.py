@@ -8,7 +8,7 @@ import yaml
 import shutil
 from copy import deepcopy
 from threading import Lock
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 import torch  # For automatic CUDA/CPU device detection
 from pathlib import Path
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE_PATH = Path("config.yaml")
 
 # --- Default Directory Paths ---
-# These paths are used if not specified in config.yaml and are created if they don't exist
+# These paths are used when config.yaml does not specify them.
 # when a default configuration file is generated.
 DEFAULT_LOGS_PATH = Path("logs")
 DEFAULT_MODEL_FILES_PATH = Path("./model_cache")  # For downloaded model files
@@ -41,11 +41,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "log_file_path": str(
             DEFAULT_LOGS_PATH / "tts_server.log"
         ),  # Path to the server log file.
-        "log_file_max_size_mb": 10,  # Maximum size of a single log file before rotation.
+        "log_file_max_size_mb": 10,  # Maximum log file size.
         "log_file_backup_count": 5,  # Number of backup log files to keep.
     },
     "model": {  # Updated section for model source configuration
-        "repo_id": "KittenML/kitten-tts-nano-0.1",  # KittenTTS Hugging Face repository ID
+        "repo_id": "KittenML/kitten-tts-nano-0.1",  # Hugging Face repository.
     },
     "tts_engine": {
         "device": "auto",  # TTS processing device: 'auto', 'cuda', or 'cpu'.
@@ -71,9 +71,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "last_text": "",  # Last text entered by the user.
         "last_voice": "expr-voice-5-m",  # Last selected voice.
         "last_chunk_size": 120,  # Last used chunk size for text splitting in UI.
-        "last_split_text_enabled": True,  # Whether text splitting was last enabled in UI.
+        "last_split_text_enabled": True,  # Restore text splitting state.
         "hide_chunk_warning": False,  # Flag to hide the chunking warning modal.
-        "hide_generation_warning": False,  # Flag to hide the general generation quality notice modal.
+        "hide_generation_warning": False,  # Hide the generation warning modal.
         "theme": "dark",  # Default UI theme ('dark' or 'light').
     },
     "ui": {  # General UI display settings.

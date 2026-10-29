@@ -10,17 +10,13 @@ import time
 import io
 import uuid
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, Set, List
+from typing import Optional, Tuple, Set, List
 from pydub import AudioSegment
 
 import numpy as np
 import soundfile as sf
 import torchaudio  # For saving PyTorch tensors and potentially speed adjustment.
 import torch
-
-# Configuration manager to get paths dynamically.
-# Assumes config.py and its config_manager are in the same directory or accessible via PYTHONPATH.
-from config import config_manager
 
 # Optional import for librosa (for audio resampling, e.g., Opus encoding and time stretching)
 try:
@@ -241,7 +237,7 @@ def encode_audio(
             audio_array = audio_array.astype(np.float32) / max_val
         else:  # Fallback for other types, assuming they might be float64 or similar
             audio_array = audio_array.astype(np.float32)
-        logger.debug(f"Converted audio array to float32 for encoding.")
+        logger.debug("Converted audio array to float32 for encoding.")
 
     # Ensure audio is mono if it's (samples, 1)
     if audio_array.ndim == 2 and audio_array.shape[1] == 1:
@@ -534,26 +530,13 @@ def apply_speed_factor(
         except Exception as e_librosa:
             logger.error(
                 f"Failed to apply speed factor {speed_factor} using librosa: {e_librosa}. "
-                f"Falling back to basic resampling (pitch will change).",
+                "Falling back to the original audio.",
                 exc_info=True,
             )
-            # Fallback to simple resampling (changes pitch)
+            # Fall back to the original audio when time stretching fails.
             try:
-                new_sample_rate_for_speedup = int(sample_rate / speed_factor)
-                resampler = torchaudio.transforms.Resample(
-                    orig_freq=sample_rate, new_freq=new_sample_rate_for_speedup
-                )
-                # Resample to new_sample_rate_for_speedup to change duration, then resample back to original SR
-                # This is effectively what sox 'speed' does, but 'tempo' is better (which librosa does)
-                # For simplicity in fallback, just resample and note pitch change
-                # To actually change speed without changing sample rate and preserving pitch using *only* torchaudio is more complex
-                # and typically involves phase vocoder or similar, which is beyond a simple fallback.
-                # The torchaudio.functional.pitch_shift and then torchaudio.functional.speed is one way,
-                # but librosa is simpler.
-                # Given the instruction "Fallback to original audio" if librosa not available or fails, we'll stick to that.
-                # Original plan: "If Librosa is not available, log a warning and return the original audio"
                 logger.warning(
-                    f"Librosa failed for speed factor. Returning original audio as primary fallback."
+                    "Librosa failed for speed factor. Returning original audio as primary fallback."
                 )
                 return audio_tensor, sample_rate
 
