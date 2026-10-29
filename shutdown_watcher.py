@@ -24,11 +24,14 @@ def _watch(flag: Path, interval: float) -> None:
     while not check_shutdown_flag(flag):
         time.sleep(interval)
     logger.info(f"Shutdown flag {flag} found. Stopping server...")
-    # Runs uvicorn's own SIGINT handler like Ctrl+C; os.kill would hard-terminate on Windows.
+    # Runs uvicorn's SIGINT handler like Ctrl+C; os.kill would hard-terminate
+    # on Windows.
     signal.raise_signal(signal.SIGINT)
 
 
-def start_shutdown_watcher(flag: Path = SHUTDOWN_FLAG_FILE, interval: float = 1.0) -> None:
+def start_shutdown_watcher(
+    flag: Path = SHUTDOWN_FLAG_FILE, interval: float = 1.0
+) -> None:
     """Start a daemon thread that polls for the shutdown flag file."""
     # A flag left over from an earlier run would stop the server right after startup.
     check_shutdown_flag(flag)
