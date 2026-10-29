@@ -3,18 +3,15 @@
 # Handles API requests for text-to-speech generation, UI serving,
 # configuration management, and file uploads.
 
-import os
 import io
 import logging
 import logging.handlers  # For RotatingFileHandler
-import shutil
 import time
-import uuid
 import yaml  # For loading presets
 import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Literal
 import webbrowser  # For automatic browser opening
 import threading  # For automatic browser opening
 
@@ -22,14 +19,10 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
-    File,
-    UploadFile,
-    Form,
     BackgroundTasks,
 )
 from fastapi.responses import (
     HTMLResponse,
-    JSONResponse,
     StreamingResponse,
     FileResponse,
 )
@@ -46,7 +39,6 @@ from config import (
     get_output_path,
     get_ui_title,
     get_gen_default_speed,
-    get_gen_default_language,
     get_audio_sample_rate,
     get_full_config_for_template,
     get_audio_output_format,
@@ -110,7 +102,8 @@ def _delayed_browser_open(host: str, port: int):
         startup_complete_event.wait(timeout=30)
         if not startup_complete_event.is_set():
             logger.warning(
-                "Server startup did not signal completion within timeout. Browser will not be opened automatically."
+                "Server startup did not signal completion within timeout. "
+                "Browser will not be opened automatically."
             )
             return
 
@@ -142,7 +135,8 @@ async def lifespan(app: FastAPI):
 
         if not engine.load_model():
             logger.critical(
-                "CRITICAL: TTS Model failed to load on startup. Server might not function correctly."
+                "CRITICAL: TTS Model failed to load on startup. "
+                "Server might not function correctly."
             )
         else:
             logger.info("TTS Model loaded successfully via engine.")
@@ -191,7 +185,8 @@ if ui_static_path.is_dir():
     app.mount("/ui", StaticFiles(directory=ui_static_path), name="ui_static_assets")
 else:
     logger.warning(
-        f"UI static assets directory not found at '{ui_static_path}'. UI may not load correctly."
+        f"UI static assets directory not found at '{ui_static_path}'. "
+        "UI may not load correctly."
     )
 
 # This will serve files from 'ui_static_path/vendor' when requests come to '/vendor/*'
@@ -201,7 +196,8 @@ if (ui_static_path / "vendor").is_dir():
     )
 else:
     logger.warning(
-        f"Vendor directory not found at '{ui_static_path}' /vendor. Wavesurfer might not load."
+        f"Vendor directory not found at '{ui_static_path}' /vendor. "
+        "Wavesurfer might not load."
     )
 
 
@@ -230,7 +226,8 @@ try:
     )
 except RuntimeError as e_mount_outputs:
     logger.error(
-        f"Failed to mount /outputs directory '{outputs_static_path}': {e_mount_outputs}. "
+        f"Failed to mount /outputs directory '{outputs_static_path}': "
+        f"{e_mount_outputs}. "
         "Output files may not be accessible via URL."
     )
 
