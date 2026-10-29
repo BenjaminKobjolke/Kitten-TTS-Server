@@ -6,7 +6,10 @@
   "command_check_scripts": [
     "graphify_update.bat"
   ],
-  "analysis_commands": [],
+  "analysis_commands": [
+    "uv run pytest tests/",
+    "ruff check ."
+  ],
   "analysis_commands_seen": {
     "scripts": [
       "graphify_update.bat"
@@ -14,5 +17,13 @@
     "tests": true
   },
   "analysis_tests_answered": true,
-  "analysis_code_quality_answered": true
+  "analysis_code_quality_answered": true,
+  "analysis_command_states": {
+    "uv run pytest tests/": {
+      "test": "green"
+    },
+    "ruff check .": {
+      "test": "failed"
+    }
+  }
 }
