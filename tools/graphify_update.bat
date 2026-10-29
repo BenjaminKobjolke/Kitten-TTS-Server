@@ -35,7 +35,7 @@ set "GRAPHIFY=graphify"
 where graphify >nul 2>nul
 if errorlevel 1 (
   if exist "graphify-out\.graphify_python" (
-    set /p GPY=<graphify-out\.graphify_python
+    for /f "usebackq delims=" %%A in ("graphify-out\.graphify_python") do set "GPY=%%A"
     set "GRAPHIFY=!GPY:python.exe=graphify.exe!"
   ) else (
     echo ERROR: graphify not on PATH and no graphify-out\.graphify_python found.
@@ -62,7 +62,7 @@ if not exist "graphify-out\graph.json" (
 )
 REM Report directed flag + node count of the LIVE root graph (should be directed:True).
 if exist "graphify-out\.graphify_python" (
-  set /p GPY2=<graphify-out\.graphify_python
+  for /f "usebackq delims=" %%A in ("graphify-out\.graphify_python") do set "GPY2=%%A"
   "!GPY2!" -c "import json;d=json.load(open('graphify-out/graph.json',encoding='utf-8'));print('directed:',d.get('directed'),'  nodes:',len(d.get('nodes',[])));raise SystemExit(0 if d.get('directed') is True else 'ERROR: graph is not directed')"
   if errorlevel 1 (
     echo ERROR: graphify graph must be directed.
@@ -75,9 +75,21 @@ if exist "graphify-out\.graphify_python" (
 echo.
 echo --- god nodes (top 5) ---
 "%GRAPHIFY%" god-nodes --top 5
+set "COMMAND_RESULT=!ERRORLEVEL!"
+if not "!COMMAND_RESULT!"=="0" (
+  echo ERROR: graphify god-nodes failed with exit code !COMMAND_RESULT!.
+  popd
+  endlocal & exit /b !COMMAND_RESULT!
+)
 echo.
 echo --- sample query ---
 "%GRAPHIFY%" query "What are the main modules and how do they connect?"
+set "COMMAND_RESULT=!ERRORLEVEL!"
+if not "!COMMAND_RESULT!"=="0" (
+  echo ERROR: graphify query failed with exit code !COMMAND_RESULT!.
+  popd
+  endlocal & exit /b !COMMAND_RESULT!
+)
 
 popd
-endlocal
+endlocal & exit /b %COMMAND_RESULT%
