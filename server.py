@@ -51,6 +51,7 @@ from models import (  # Pydantic models
     UpdateStatusResponse,
 )
 import utils  # Utility functions
+from shutdown_watcher import start_shutdown_watcher
 
 from pydantic import BaseModel, Field
 
@@ -149,6 +150,7 @@ async def lifespan(app: FastAPI):
             browser_thread.start()
 
         logger.info("Application startup sequence complete.")
+        start_shutdown_watcher()
         startup_complete_event.set()
         yield
     except Exception as e_startup:
