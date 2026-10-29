@@ -1,0 +1,32 @@
+# Project documentation and static assets
+/docs/
+/static/
+
+# Tests, dependencies, and vendored code
+/tests/
+/vendor/
+/packages/
+/assets/
+/tools/
+/migrations/
+/ui/vendor/
+
+# Build output
+/build/
+/dist/
+/coverage/
+
+# Local and generated data
+/.claude/
+/.ruff_cache/
+/.venv/
+/__pycache__/
+/claude-plans/
+/code_analysis_results/
+/graphify-out/
+/logs/
+/model_cache/
+/outputs/
+/tickets/
+/tmp/
+/venv/
