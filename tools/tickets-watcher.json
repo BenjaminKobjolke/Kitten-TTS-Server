@@ -13,5 +13,6 @@
     ],
     "tests": true
   },
-  "analysis_tests_answered": true
+  "analysis_tests_answered": true,
+  "analysis_code_quality_answered": true
 }
