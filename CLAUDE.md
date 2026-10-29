@@ -29,3 +29,13 @@ they are intentionally referenced, not imported.
 ## Graphify scan scope
 
 This project scans the repository root (`.`) so the top-level Python service modules and `ui/script.js` are included. `.graphifyignore` excludes documentation, settings, static assets, and other non-code inputs.
+
+## Code Analysis
+
+Use the changed-files analyzer after implementing a feature, finishing a plan, or fixing a bug:
+
+```bash
+powershell -Command "cd 'D:\GIT\BenjaminKobjolke\Kitten-TTS-Server'; cmd /c '.\tools\analyze_changed_and_new_files.bat'"
+```
+
+This runs cli-code-analyzer with `--only-changed`, so it reports findings only for new or modified files while project-wide analyzers still run. Use `tools/analyze_code.bat` for a full-project audit, exception maintenance, before a release or merge, after a shared-code refactor, or when the working tree is clean. Results are written to `code_analysis_results/` as per-rule CSV files; a missing report means that rule found no findings.

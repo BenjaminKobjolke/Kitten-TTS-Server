@@ -4,12 +4,24 @@
     "TICKETS_WATCHER_COMMANDS.md": 3
   },
   "command_check_scripts": [
-    "graphify_update.bat"
+    "analyze_changed_and_new_files.bat",
+    "analyze_code.bat",
+    "analyze_code_config.bat",
+    "analyze_code_config.example.bat",
+    "fix_ruff_issues.bat",
+    "graphify_update.bat",
+    "shutdown.bat"
   ],
   "analysis_commands": [
     "uv run pytest tests/",
-    "ruff check ."
+    "ruff check .",
+    "tools/analyze_changed_and_new_files.bat"
   ],
+  "analysis_command_kinds": {
+    "uv run pytest tests/": "test",
+    "ruff check .": "code_quality",
+    "tools/analyze_changed_and_new_files.bat": "code_quality"
+  },
   "analysis_commands_seen": {
     "scripts": [
       "graphify_update.bat"
@@ -24,6 +36,9 @@
     },
     "ruff check .": {
       "test": "failed"
+    },
+    "tools/analyze_changed_and_new_files.bat": {
+      "code_quality": "failed"
     }
   }
 }
