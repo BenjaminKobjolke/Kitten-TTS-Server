@@ -35,10 +35,10 @@
       "test": "green"
     },
     "ruff check .": {
-      "test": "failed"
+      "code_quality": "failed"
     },
     "tools/analyze_changed_and_new_files.bat": {
-      "code_quality": "failed"
+      "code_quality": "green"
     }
   }
 }
