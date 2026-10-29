@@ -30,3 +30,24 @@
 /tickets/
 /tmp/
 /venv/
+# Keep the root scan focused on Python and browser JavaScript sources
+*.md
+*.txt
+*.yaml
+*.yml
+*.json
+*.toml
+*.ini
+*.cfg
+*.bat
+*.sh
+*.ps1
+*.html
+*.css
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.lock
