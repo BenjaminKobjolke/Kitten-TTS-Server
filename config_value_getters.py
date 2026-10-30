@@ -16,23 +16,27 @@ class ConfigValueGetters:
         if raw_value is None:
             if default is not None:
                 logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
+                    f"Config '{key_path}' is None, using provided "
+                    f"method default: {default}"
                 )
                 return default
             logger.error(
-                f"Mandatory integer config '{key_path}' is None, and no method default. Returning 0."
+                f"Mandatory integer config '{key_path}' is None, and no method "
+                "default. Returning 0."
             )
             return 0
         try:
             return int(raw_value)
         except (ValueError, TypeError):
             logger.warning(
-                f"Invalid integer value '{raw_value}' for '{key_path}'. Using method default or 0."
+                f"Invalid integer value '{raw_value}' for '{key_path}'. "
+                "Using method default or 0."
             )
             if isinstance(default, int):
                 return default
             logger.error(
-                f"Cannot parse '{raw_value}' as int for '{key_path}' and no valid method default. Returning 0."
+                f"Cannot parse '{raw_value}' as int for '{key_path}' and no "
+                "valid method default. Returning 0."
             )
             return 0
 
@@ -42,23 +46,27 @@ class ConfigValueGetters:
         if raw_value is None:
             if default is not None:
                 logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
+                    f"Config '{key_path}' is None, using provided "
+                    f"method default: {default}"
                 )
                 return default
             logger.error(
-                f"Mandatory float config '{key_path}' is None, and no method default. Returning 0.0."
+                f"Mandatory float config '{key_path}' is None, and no method "
+                "default. Returning 0.0."
             )
             return 0.0
         try:
             return float(raw_value)
         except (ValueError, TypeError):
             logger.warning(
-                f"Invalid float value '{raw_value}' for '{key_path}'. Using method default or 0.0."
+                f"Invalid float value '{raw_value}' for '{key_path}'. "
+                "Using method default or 0.0."
             )
             if isinstance(default, float):
                 return default
             logger.error(
-                f"Cannot parse '{raw_value}' as float for '{key_path}' and no valid method default. Returning 0.0."
+                f"Cannot parse '{raw_value}' as float for '{key_path}' and no "
+                "valid method default. Returning 0.0."
             )
             return 0.0
 
@@ -68,11 +76,13 @@ class ConfigValueGetters:
         if raw_value is None:
             if default is not None:
                 logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
+                    f"Config '{key_path}' is None, using provided "
+                    f"method default: {default}"
                 )
                 return default
             logger.error(
-                f"Mandatory boolean config '{key_path}' is None, and no method default. Returning False."
+                f"Mandatory boolean config '{key_path}' is None, and no "
+                "method default. Returning False."
             )
             return False
         if isinstance(raw_value, bool):
@@ -84,26 +94,29 @@ class ConfigValueGetters:
             if normalized_value in ("false", "0", "f", "no", "n"):
                 return False
             logger.warning(
-                f"Invalid boolean value '{raw_value}' for '{key_path}'. Using method default or False."
+                f"Invalid boolean value '{raw_value}' for '{key_path}'. "
+                "Using method default or False."
             )
             if default is not None:
                 return default
             logger.error(
-                f"Cannot parse '{raw_value}' as bool for '{key_path}' and no method default. Returning False."
+                f"Cannot parse '{raw_value}' as bool for '{key_path}' and no "
+                "method default. Returning False."
             )
             return False
-        try:  # Handle numeric representations (e.g., 1 for True, 0 for False).
-            return bool(int(raw_value))
-        except (ValueError, TypeError):
-            logger.warning(
-                f"Invalid boolean value '{raw_value}' for '{key_path}'. Using method default or False."
-            )
-            if isinstance(default, bool):
-                return default
-            logger.error(
-                f"Cannot parse '{raw_value}' as bool for '{key_path}' and no valid method default. Returning False."
-            )
-            return False
+        if isinstance(raw_value, (int, float)) and raw_value in (0, 1):
+            return raw_value == 1
+        logger.warning(
+            f"Invalid boolean value '{raw_value}' for '{key_path}'. "
+            "Using method default or False."
+        )
+        if isinstance(default, bool):
+            return default
+        logger.error(
+            f"Cannot parse '{raw_value}' as bool for '{key_path}' and no "
+            "valid method default. Returning False."
+        )
+        return False
 
     def get_path(
         self,
@@ -112,7 +125,8 @@ class ConfigValueGetters:
         ensure_absolute: bool = False,
     ) -> Path:
         """
-        Retrieves a configuration value expected to be a path, returning it as a Path object.
+        Retrieves a configuration value expected to be a path, returning it as
+        a Path object.
         If 'ensure_absolute' is True, the path is resolved to an absolute path.
         """
         value_from_config = self.get(key_path)
@@ -124,12 +138,14 @@ class ConfigValueGetters:
             path_obj_to_return = Path(value_from_config)
         elif default_str_path is not None:  # Fallback to provided string default.
             logger.debug(
-                f"Config Path '{key_path}' not found or invalid type, using provided default string path: '{default_str_path}'"
+                f"Config Path '{key_path}' not found or invalid type, using "
+                f"provided default string path: '{default_str_path}'"
             )
             path_obj_to_return = Path(default_str_path)
         else:  # Ultimate fallback if no value and no default.
             logger.error(
-                f"Config Path '{key_path}' not found or invalid type, and no default provided. Returning Path('.')"
+                f"Config Path '{key_path}' not found or invalid type, and no "
+                "default provided. Returning Path('.')"
             )
             path_obj_to_return = Path(".")  # Current directory.
 

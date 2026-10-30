@@ -111,7 +111,8 @@ class YamlConfigManager(ConfigPersistence, ConfigValueGetters):
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """
-        Retrieves a configuration value using a dot-separated key path (e.g., 'server.port').
+        Retrieves a configuration value using a dot-separated key path
+        (e.g., 'server.port').
         If the key path is not found, 'default' is returned.
         For mutable types (dicts, lists), a deep copy is returned to prevent
         unintended modification of the in-memory configuration.
@@ -172,7 +173,8 @@ class YamlConfigManager(ConfigPersistence, ConfigValueGetters):
 
         with self._lock:
             try:
-                # Work on a deep copy of the current config to avoid altering it before a successful save.
+                # Work on a deep copy of the current config to avoid altering it
+                # before a successful save.
                 config_copy_for_update = deepcopy(self.config)
                 # Merge the partial update into this copy.
                 _deep_merge_dicts(partial_update_dict, config_copy_for_update)
@@ -204,13 +206,16 @@ class YamlConfigManager(ConfigPersistence, ConfigValueGetters):
     def reset_and_save(self) -> bool:
         """
         Resets the application configuration to its hardcoded defaults.
-        The reset configuration (after resolving paths/device) is then saved to 'config.yaml'.
+        The reset configuration (after resolving paths/device) is then saved
+        to 'config.yaml'.
         """
         with self._lock:
             logger.warning("Initiating configuration reset to hardcoded defaults...")
-            # Start with hardcoded defaults (this also ensures default directories are created).
+            # Start with hardcoded defaults (this also ensures default
+            # directories are created).
             reset_config_base = self._load_defaults()
-            # Resolve device settings and ensure paths are Path objects for the new in-memory config.
+            # Resolve device settings and ensure paths are Path objects for the
+            # new in-memory config.
             final_reset_config = self._resolve_paths_and_device(reset_config_base)
 
             if self._save_config_yaml_internal(
@@ -223,7 +228,8 @@ class YamlConfigManager(ConfigPersistence, ConfigValueGetters):
                 return True
             else:
                 logger.error(
-                    "Failed to save the reset configuration. Current configuration remains unchanged."
+                    "Failed to save the reset configuration. Current configuration "
+                    "remains unchanged."
                 )
                 # If save failed, the old self.config is retained.
                 return False

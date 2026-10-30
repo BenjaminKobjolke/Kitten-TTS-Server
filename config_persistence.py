@@ -47,7 +47,7 @@ class ConfigPersistence:
                         )
         return config_copy_for_saving
 
-    def load_config(self):
+    def load_config(self) -> Dict[str, Any]:
         """
         Loads the application configuration from 'config.yaml'.
         If the file doesn't exist, it's created using defaults.
@@ -203,7 +203,8 @@ class ConfigPersistence:
                     )
             return False
         finally:
-            # Clean up the backup file if the main configuration file exists and the save was successful.
+            # Clean up the backup file if the main configuration file exists
+            # and the save was successful.
             if CONFIG_FILE_PATH.exists() and backup_file.exists():
                 try:
                     if (
@@ -215,7 +216,8 @@ class ConfigPersistence:
                         )
                 except Exception as remove_bak_error:
                     logger.warning(
-                        f"Could not remove backup config file {backup_file}: {remove_bak_error}"
+                        f"Could not remove backup config file {backup_file}: "
+                        f"{remove_bak_error}"
                     )
 
     def save_config_yaml(self) -> bool:
