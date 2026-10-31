@@ -27,7 +27,11 @@ class CustomTTSRequest(BaseModel):
 
     voice: str = Field(
         ...,
-        description="Voice identifier (e.g., 'expr-voice-5-m'). Available voices: expr-voice-2-m, expr-voice-2-f, expr-voice-3-m, expr-voice-3-f, expr-voice-4-m, expr-voice-4-f, expr-voice-5-m, expr-voice-5-f",
+        description=(
+            "Voice identifier (e.g., 'expr-voice-5-m'). Available voices: "
+            "expr-voice-2-m, expr-voice-2-f, expr-voice-3-m, expr-voice-3-f, "
+            "expr-voice-4-m, expr-voice-4-f, expr-voice-5-m, expr-voice-5-f"
+        ),
     )
 
     output_format: Optional[Literal["wav", "opus", "mp3"]] = Field(
@@ -36,13 +40,18 @@ class CustomTTSRequest(BaseModel):
 
     split_text: Optional[bool] = Field(
         True,
-        description="Whether to automatically split long text into chunks for processing.",
+        description=(
+            "Whether to automatically split long text into chunks for processing."
+        ),
     )
     chunk_size: Optional[int] = Field(
         120,
         ge=50,
         le=500,
-        description="Approximate target character length for text chunks when splitting is enabled (50-500).",
+        description=(
+            "Approximate target character length for text chunks when splitting "
+            "is enabled (50-500)."
+        ),
     )
 
     # Embed generation parameters directly
@@ -68,5 +77,8 @@ class UpdateStatusResponse(BaseModel):
     )
     restart_needed: Optional[bool] = Field(
         False,
-        description="Indicates if a server restart is recommended or required for changes to take full effect.",
+        description=(
+            "Indicates if a server restart is recommended or required for changes "
+            "to take full effect."
+        ),
     )

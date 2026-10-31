@@ -3,8 +3,10 @@
 Modes (see dataserver-tool.json and README "Use as ai-chat-data-server tool"):
   --check                                              load the model, exit 0/1
   --text T --out DIR [--lang en] [--voice V] [--speed S]  write DIR/speech.mp3 once
-  --serve                                              keep the model loaded, JSON lines:
-      stdout {"ready": true} once, then per stdin line {"text", "out", "lang", "voice", "speed"}
+  --serve                                              keep the model loaded,
+      JSON lines:
+      stdout {"ready": true} once, then per stdin line
+      {"text", "out", "lang", "voice", "speed"}
       answers {"ok": true} or {"ok": false, "error": "..."}
 """
 
@@ -12,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+from typing import TypedDict
 
 import numpy as np
 import soundfile as sf
@@ -24,8 +27,26 @@ DEFAULT_SPEED = 1.1  # matches config.yaml
 CHUNK_SIZE = 200
 
 
-def synth(text, out, lang="", voice="", speed="", **_unused):
-    # ponytail: serve mode gets every placeholder (e.g. "url"); ignore the ones TTS does not use.
+class SynthRequest(TypedDict, total=False):
+    """Fields accepted from the line-delimited JSON protocol."""
+
+    text: str
+    out: str
+    lang: str
+    voice: str
+    speed: str | int | float | None
+
+
+def synth(
+    text: str,
+    out: str,
+    lang: str = "",
+    voice: str = "",
+    speed: str | int | float | None = "",
+    **_unused: object,
+) -> None:
+    # ponytail: serve mode gets every placeholder (e.g. "url"); ignore the ones
+    # TTS does not use.
     lang = lang or "en"
     if lang != "en":
         raise ValueError(f"unsupported language {lang!r}, only 'en'")
@@ -58,31 +79,44 @@ def synth(text, out, lang="", voice="", speed="", **_unused):
     if not parts:
         raise ValueError("text produced no chunks")
     os.makedirs(out, exist_ok=True)
-    sf.write(os.path.join(out, "speech.mp3"), np.concatenate(parts), sample_rate, format="MP3")
+    sf.write(
+        os.path.join(out, "speech.mp3"),
+        np.concatenate(parts),
+        sample_rate,
+        format="MP3",
+    )
 
 
-def serve():
+def serve() -> int:
     proto = sys.stdout
-    sys.stdout = sys.stderr  # library prints / HF warnings must not corrupt the protocol
-    if not engine.load_model():
-        return 1
-    proto.write(json.dumps({"ready": True}) + "\n")
-    proto.flush()
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        try:
-            synth(**json.loads(line))
-            reply = {"ok": True}
-        except Exception as e:  # noqa: BLE001 - worker must survive any bad request
-            reply = {"ok": False, "error": str(e)}
-        proto.write(json.dumps(reply) + "\n")
+    # Library prints and HF warnings must not corrupt the protocol.
+    sys.stdout = sys.stderr
+    try:
+        if not engine.load_model():
+            return 1
+        proto.write(json.dumps({"ready": True}) + "\n")
         proto.flush()
-    return 0
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            try:
+                request: SynthRequest = json.loads(line)
+                synth(**request)
+                reply = {"ok": True}
+            except Exception as e:  # noqa: BLE001 - worker must survive any bad request
+                reply = {"ok": False, "error": str(e)}
+            proto.write(json.dumps(reply) + "\n")
+            proto.flush()
+        return 0
+    finally:
+        sys.stdout = proto
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--text", default="")
