@@ -1,7 +1,7 @@
 <!-- Managed by /coding-rules:apply — do not edit rule blocks by hand -->
 
 # Version
-6
+14
 
 Increase this version number whenever this rule file changes.
 
@@ -13,6 +13,7 @@ corresponding `*_RULES.md` files.
 ---
 
 ## Keep CODING_RULES.md in Sync
+<!-- steps: code -->
 
 When working on a project, copy all relevant rules into the project's `CODING_RULES.md` file
 (project root). The project's `CLAUDE.md` carries only a small versioned pointer block that
@@ -22,6 +23,9 @@ mandates reading `CODING_RULES.md` before code work — never the full rules, an
 - Always include all rules from `COMMON_RULES.md` and `IMPLEMENTATION_FLOW.md`.
   `COMMON_RULES.md` is copied into the project's `CODING_RULES.md`;
   `IMPLEMENTATION_FLOW.md` is copied into the project's own `IMPLEMENTATION_FLOW.md`
+- `apply` also writes `CODING_RULES_PLAN.md`, `CODING_RULES_REVIEW.md` and
+  `CODING_RULES_CODE.md` from the same rule blocks. Use `<!-- steps: plan, review, code -->`
+  under a heading to limit its section.
 - Also include applicable language-specific, project-type, and supplemental rule files
   (see `PROJECT_TYPES.md` for the project-type overview)
 - Include optional addon rule files only when the user has opted in to that addon
@@ -117,6 +121,7 @@ components work correctly together and catch issues that unit tests alone cannot
 ---
 
 ## Test Runner Scripts
+<!-- steps: review, code -->
 
 Every project must provide the following batch files in the `tools/` directory:
 
@@ -125,15 +130,30 @@ Every project must provide the following batch files in the `tools/` directory:
 
 These scripts ensure a consistent way to execute tests across environments.
 
+Both scripts must show progress while tests run: report the current setup stage, suite, or test
+before potentially slow work, and show results as execution proceeds. A start banner followed only
+by a final summary is insufficient. Prefer the runner's verbose output and stream or flush it so
+callers can see it during execution. Print one line per test: `flutter test --reporter expanded`,
+`pytest -v`, `phpunit --debug` (`--testdox` lists the tests only after the run on PHPUnit 10+).
+For a legitimate long wait without ordinary output, report the current stage or test and elapsed
+time at least every 60 seconds. Elapsed-time updates must not imply that a test completed or
+advanced. If output is captured for logs or filtering, keep progress visible during execution;
+replaying it only after completion does not count.
+
 Both must **exit with the test runner's own exit code** — capture it right after the run
 (`set TESTRESULT=%ERRORLEVEL%`) and end with `exit /b %TESTRESULT%`. A bat that prints
 "Some tests failed!" but exits 0 reports green to CI, to callers and to AI agents. Never pipe the
-test command into a filter — the pipe's exit code is the *filter's*, not the runner's; write to a
-temp file and filter that instead.
+test command into a plain filter — the pipe's exit code is the *filter's*, not the runner's. Never
+redirect the run into a temp file and print or filter that afterwards either: the script is then
+silent for the whole run. Run the command directly so its output streams. If output has to be
+filtered or logged, do it while it streams and return the runner's own code, e.g. `powershell
+-NoProfile -Command "<test command> | Where-Object { $_ -notmatch '<noise>' }; exit $LASTEXITCODE"`,
+or use the runner's own log-file option.
 
 ---
 
 ## No `pause` in Batch Files
+<!-- steps: review, code -->
 
 Batch files must never contain a `pause` line. `pause` waits for a keypress, so any bat that has one
 hangs forever when run by CI, another bat, or an AI agent. End with an explicit `exit /b <code>`
@@ -170,6 +190,19 @@ existing equivalent. If found, copy or reference it. If not:
 
 This keeps cross-project tooling consistent and prevents the same script
 from being re-invented in every new project.
+
+---
+
+## New Projects Start From a Template
+<!-- steps: plan -->
+
+Before creating a new project (an API, an app, a tool — anything that gets its own folder),
+ask the user whether a template project exists for that kind of project. Never scaffold from
+scratch without asking.
+
+- Run `/coding-rules:new-project`: it suggests the template remembered for that project type
+  in `~/.coding-rules/settings.json`, asks, and remembers a newly chosen template for next time.
+- A remembered template is a suggestion — still ask, the user may want another one or none.
 
 ---
 
@@ -282,6 +315,7 @@ The logger's name is fixed per language so it is the same known type in every pr
 | Dart/Flutter  | `AppLogger`        | `app_logger.dart`   |
 | Kotlin        | `AppLogger`        | `AppLogger.kt`      |
 | C# (plain)    | `AppLogger`        | `AppLogger.cs`      |
+| C++           | `AppLogger`        | `AppLogger.h` / `AppLogger.cpp` |
 | Unity C#      | `GameLog` (static) | `GameLog.cs`        |
 | Svelte/JS/TS  | `logger` (export)  | `logger.ts`         |
 | Arduino       | `Log`              | `Log.h` / `Log.cpp` |
@@ -296,6 +330,66 @@ responses.
 - Never trust external data; validate before processing
 - Use language-appropriate validation libraries (e.g., Pydantic, Zod, FluentValidation)
 - Fail fast with clear error messages when validation fails
+
+---
+
+## API Clients: the API Sorts, Filters and Pages (BINDING)
+
+Applies to every project that reads data from an API — app, SPA, desktop tool, script.
+
+- **Show what the API returns, in the order it returns it.** Never download a whole collection
+  to sort, filter, search, count, group or join it locally.
+- **Read lists page by page.** Send the page size and position and load the next page when the
+  user scrolls or asks for more. Never loop over all pages to rebuild the full list on start or
+  on refresh.
+- **A new order, filter or search is a new request** with that parameter, starting at the first
+  page. Reordering the rows already held is wrong as soon as the list is paged: the client holds
+  one page, not the list.
+- **Do not download again what you already hold.** After a create, update or delete use the row
+  the response returned, or re-request the visible page — not the whole collection.
+- **A missing parameter is API work.** When an API you own lacks the sort, filter, search,
+  paging or count a screen needs, request it from the API project (linked todo or
+  `/feedback:write`) and plan against that. "The list is small or unpaged today, so the client
+  can do it" is not a reason. For a third-party API that cannot change, use the paging and
+  sorting it offers and mark any remaining local work with a comment naming the missing
+  capability.
+
+The server half is `project_type/REST_API.md` -> "List Endpoints: Paging, Sorting, Filtering".
+
+---
+
+## Shared Contract Repository for API and Clients (BINDING)
+
+When two or more projects we own talk over the wire — an API plus an app, an API plus a desktop
+app, or all three — keep their shared values in one contract repository. This does not apply to
+third-party APIs.
+
+- **Why:** each side keeps its own copy of every value that crosses the wire. When one side adds a
+  value the other does not know, the other side can break (for example, the API added a todo type
+  and the watcher rejected the whole todo list).
+- **One separate repository** (`<system>-contract`) holds the contract: at minimum every shared
+  enum in `enums.json`, shaped as `"<Name>": {"values": [sorted unique], "direction":
+  "api_to_client" | "client_to_api", "description": "<where it appears>"}`, plus a `README.md`
+  with the change rules and the list of consumers. Do not add version numbers; the submodule
+  pointer is the version.
+- **Every project includes it as a git submodule at `contract/`.** Pick up changes with
+  `git submodule update --remote contract` and commit the pointer bump. Production code never
+  reads `contract/`; it is test input only.
+- **The API is the producer:** export the contract from its own constants (one map, one export
+  script) and add a freshness test that fails when the committed file differs from the export.
+- **Each client is a consumer:** test that every mapped enum matches the contract in its
+  direction (`api_to_client` sets are equal so the client knows every value;
+  `client_to_api` client values are a subset) and that every contract name is mapped.
+- Both tests skip when `contract/` is not checked out.
+- **Change order:** for an `api_to_client` value, update the contract, release clients that know
+  it, then have the API emit it. For a `client_to_api` value, update the contract and API first,
+  then have the client send it. To remove a value, stop it at the API, then remove it from the
+  contract, then from clients. Never rename a value; renaming is an add plus a remove. Add a new
+  shared enum to the contract in the same change that introduces it.
+- Clients still tolerate an unknown value (skip the row; do not fail the whole response) as a
+  last line of defence, not as permission to skip the order.
+- **Setting it up** is work in each project: when one project of the system lacks the submodule
+  or its test, request it there (linked todo or `/feedback:write`).
 
 ---
 
@@ -394,6 +488,14 @@ lists in consuming code.
 
 ---
 
+## Search Across Partial Words
+
+When implementing user-facing search, split the query on whitespace and match every term as a
+case-insensitive substring of the searchable text, regardless of term order. For example,
+`release bat` should find `release_build.bat`. Preserve the project's existing searchable fields.
+
+---
+
 ## Inject Collaborators, Don't Fold Dependencies In
 
 Composition reuse comes in two shapes, and they differ sharply in how much coupling they add to
@@ -436,7 +538,7 @@ the wrong side of **No God Classes**.
   fields.
 
 # Version
-6
+9
 
 Increase this version number whenever this rule file changes.
 
@@ -444,75 +546,28 @@ Increase this version number whenever this rule file changes.
 
 See `COMMON_RULES.md` for rules that apply to all languages.
 
-## Template Engine
+## Optional rule files
 
-Keep Python, HTML, CSS, and JS separated.
-This means using a template engine.
+- `python/WEB_TEMPLATES.md` — web templates with Jinja2 or Flask.
+- `python/GUI.md` — PySide6 desktop interface.
+- `python/LOCALIZATION.md` — translated content.
+- `python/RELEASE.md` — release tooling.
+- `python/INSTALLER.md` — Windows installer.
+- `python/DATABASE.md` — SQLAlchemy database.
 
-Use Jinja2:
+Run `/coding-rules:apply` to add one when the project gains it.
 
-```bash
-uv add jinja2
-```
+## Recipes
 
-Do not put JS code into templates. Use separate `.js` files.
+Ready-made implementations for recurring features. They are **not** copied into the
+project — they live in the `coding-rules` plugin under `rules/python/recipes/`. Read the
+matching recipe in full before implementing the feature, and follow it instead of
+inventing a new approach.
 
-Example structure:
-
-```
-project/
-├── app/
-├── templates/
-└── static/
-    ├── css/
-    └── js/
-```
-
-Example template:
-
-```html
-<!-- templates/page.html -->
-<!doctype html>
-<html>
-  <head>
-    <link rel="stylesheet" href="/static/css/app.css">
-  </head>
-  <body>
-    <h1>{{ title }}</h1>
-    <script src="/static/js/app.js"></script>
-  </body>
-</html>
-```
-
----
-
-## GUI Framework
-
-For **desktop GUI** applications use **PySide6** (Qt for Python). Always install the
-latest version — do not pin an old one:
-
-```bash
-uv add pyside6
-```
-
-This is separate from the web template engine above: Jinja2 renders web HTML,
-PySide6 builds native desktop windows. Pick by app type.
-
-### Make it look modern
-
-Default Qt reads as a debug tool: gradient buttons, boxed tabs, a caption bar in the
-user's OS accent color, no type hierarchy. Follow
-[`python_setup_files/MODERN_GUI.md`](python_setup_files/MODERN_GUI.md) — the palette /
-stylesheet / icons / window-chrome module split, the vendored-and-tinted icon recipe,
-the Qt gotchas that break a restyle (size policies, per-widget fonts, minimum-size
-floors, focus rings), and how to screenshot pages offscreen to verify it.
-
-The design decisions behind it — tokens, one accent, hierarchy, focus states, empty and
-error states — are language-independent and live in `DESIGN_RULES.md`.
-
----
+- `python/recipes/SINGLE_INSTANCE.md` — prevent a second instance of the app from starting.
 
 ## CLI Menus
+<!-- steps: review, code -->
 
 For **interactive command-line** applications, never hand-roll a menu out of `input()`
 and printed option lists. Use **`pick`** — an arrow-key menu with a selection
@@ -603,295 +658,8 @@ what the curses backend breaks, and only a human at a terminal can see it.
 
 ---
 
-## Localization
-
-Use the `python-localization` library for multi-language support:
-https://github.com/BenjaminKobjolke/python-localization
-
-### Installation (uv)
-
-#### Option A (recommended): Add as dependency to the project
-
-```bash
-uv add "git+https://github.com/BenjaminKobjolke/python-localization.git"
-```
-
-#### Option B: Install into the current environment (without adding to project deps)
-
-```bash
-uv pip install "git+https://github.com/BenjaminKobjolke/python-localization.git"
-```
-
-### Directory Structure
-
-```
-project/
-├── lang/
-│   ├── en.json    # English (default)
-│   ├── de.json    # German
-│   └── fr.json    # French
-├── app/
-└── templates/
-```
-
-### Translation File Format
-
-Create `lang/en.json` with nested structure:
-
-```json
-{
-  "nav": {
-    "dashboard": "Dashboard",
-    "settings": "Settings",
-    "logout": "Logout"
-  },
-  "auth": {
-    "login_title": "Login",
-    "signin_subtitle": "Sign in to access your dashboard",
-    "error": {
-      "auth_failed": "Authentication failed. Please try again.",
-      "rate_limited": "Too many attempts. Please try again later."
-    }
-  },
-  "flash": {
-    "success": {
-      "saved": "Changes saved successfully.",
-      "deleted": "Item deleted successfully."
-    },
-    "error": {
-      "not_found": "Item not found.",
-      "invalid_id": "Invalid ID."
-    }
-  },
-  "common": {
-    "cancel": "Cancel",
-    "save": "Save",
-    "delete": "Delete",
-    "edit": "Edit"
-  }
-}
-```
-
-### Python Setup
-
-#### Container Integration
-
-Add a method to your DI container:
-
-```py
-# app/container.py
-from pathlib import Path
-
-# Adjust import to the real package name of your library
-# from python_localization import Localization
-
-class Container:
-    def __init__(self, base_dir: Path):
-        self.base_dir = base_dir
-        self._localization = None
-
-    def get_localization(self):
-        if self._localization is None:
-            self._localization = Localization(
-                driver="json",
-                lang_dir=str(self.base_dir / "lang"),
-                default_lang="en",
-                fallback_lang="en",
-            )
-        return self._localization
-```
-
-#### Controller Helper
-
-Add translation helper to your base controller:
-
-```py
-# app/web/base_controller.py
-class BaseController:
-    def __init__(self, container):
-        self.container = container
-
-    def get_localization(self):
-        return self.container.get_localization()
-
-    def t(self, key: str, params: dict[str, object] | None = None) -> str:
-        return self.get_localization().t(key, params or {})
-        # or .translate(...) / .lang(...), depending on your library
-```
-
-Usage in controllers:
-
-```py
-from app.i18n.keys import TK
-
-# Simple translation
-self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
-
-# With placeholders
-self.add_flash("info", self.t("messages.welcome", {":name": user.name}))
-```
-
----
-
-## Jinja2 Integration
-
-### Add the `t()` Function
-
-Where you configure Jinja2:
-
-```py
-# app/web/templates.py
-from jinja2 import Environment, FileSystemLoader
-from app.i18n.keys import TK
-
-def create_env(localization, templates_dir: str) -> Environment:
-    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
-
-    def t(key: str, params: dict[str, object] | None = None) -> str:
-        return localization.t(key, params or {})
-
-    env.globals["t"] = t
-    env.globals["TK"] = TK
-    return env
-```
-
-### Usage in Templates
-
-Simple translations:
-
-```html
-<h1>{{ t(TK.NAV_DASHBOARD) }}</h1>
-<button>{{ t(TK.COMMON_SAVE) }}</button>
-<a href="/logout">{{ t(TK.NAV_LOGOUT) }}</a>
-```
-
-With placeholders (define in JSON as `:placeholder`):
-
-```json
-{
-  "messages": {
-    "welcome": "Hello, :name!",
-    "items_count": "You have :count items"
-  }
-}
-```
-
-```html
-<p>{{ t("messages.welcome", {":name": user.name}) }}</p>
-<p>{{ t("messages.items_count", {":count": items|length}) }}</p>
-```
-
-Conditional content:
-
-```html
-{% if error == "auth_failed" %}
-  {{ t("auth.error.auth_failed") }}
-{% elif error == "rate_limited" %}
-  {{ t("auth.error.rate_limited") }}
-{% endif %}
-```
-
-In attributes:
-
-```html
-<a href="/back" title="{{ t('common.back') }}">
-  <i class="icon-back"></i>
-</a>
-
-<button onclick="return confirm('{{ t('confirm.delete') }}')">
-  {{ t('common.delete') }}
-</button>
-```
-
----
-
-## Translation Key Naming Convention
-
-Use dot notation with logical grouping:
-
-```
-section.subsection.key
-
-nav.dashboard            - Navigation items
-auth.login_title         - Authentication related
-flash.success.saved      - Flash messages by type
-flash.error.not_found
-form.label.name          - Form labels
-form.placeholder.email   - Form placeholders
-form.validation.required - Validation messages
-common.save              - Reusable UI elements
-errors.404.title         - Error pages
-```
-
----
-
-## Translation Keys as Constants
-
-Using raw strings like `t("nav.dashboard")` is error-prone. Create a `TK` class with all keys as constants for IDE autocomplete and refactoring safety.
-
-Create `app/i18n/keys.py`:
-
-```py
-# app/i18n/keys.py
-class TK:
-    # Navigation
-    NAV_DASHBOARD = "nav.dashboard"
-    NAV_SETTINGS = "nav.settings"
-    NAV_LOGOUT = "nav.logout"
-
-    # Auth
-    AUTH_LOGIN_TITLE = "auth.login_title"
-    AUTH_ERROR_AUTH_FAILED = "auth.error.auth_failed"
-
-    # Flash messages
-    FLASH_SUCCESS_SAVED = "flash.success.saved"
-    FLASH_ERROR_NOT_FOUND = "flash.error.not_found"
-
-    # Common
-    COMMON_CANCEL = "common.cancel"
-    COMMON_SAVE = "common.save"
-```
-
-Usage in controllers:
-
-```py
-from app.i18n.keys import TK
-self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
-```
-
-Usage in templates:
-
-```html
-{{ t(TK.NAV_DASHBOARD) }}
-```
-
-### Benefits
-
-* IDE autocomplete for all translation keys
-* Refactoring support
-* Easy to find all usages of a key
-* Fewer typos / runtime missing-key bugs
-
----
-
-## Adding New Languages
-
-1. Copy `lang/en.json` to `lang/de.json`
-2. Translate all values (keep keys identical)
-3. Change language in configuration:
-
-```py
-self._localization = Localization(
-    driver="json",
-    lang_dir=str(self.base_dir / "lang"),
-    default_lang="de",
-    fallback_lang="en",
-)
-```
-
----
-
 ## Project Setup Scripts
+<!-- steps: code -->
 
 Copy the setup batch files from the `python_setup_files/` folder bundled with the
 coding-rules plugin (next to this rules file).
@@ -943,94 +711,7 @@ update.bat
 
 ---
 
-## Release Workflow
-
-Set up the release system with `/release:setup`. Reusable pieces live in
-`python_setup_files/`:
-
-- `tools/release/build_number.py` — self-contained helper: manages the integer in
-  `build_version.txt` (project root) and prints the `<version>_<build>` label
-  (version from `pyproject.toml`). Actions: `get | increment | decrement | label`.
-- `tools/build_get.bat`, `tools/build_increment.bat`, `tools/build_decrement.bat`,
-  `tools/version_get.bat` — thin `uv run` wrappers over the helper.
-- `CREATE_NEW_RELEASE.template.md` — fill-in-the-blanks for `docs/CREATE_NEW_RELEASE.md`.
-- The Python stack recipe read by `/release:create-release-notes` lives in the shared
-  `coding-rules/CREATE_RELEASE_NOTES.md` (`## Python / uv` section), not here.
-
-Conventions:
-
-- **Release label** = `<version>_<build>` (e.g. `0.1.0_22`). `version` is semver in
-  `pyproject.toml` (bumped by hand); `build` is an integer in `build_version.txt`.
-- **Release notes** = `release_notes/<version>_<build>/<locale>.json`. The actual
-  text is the `notes` array. Author **only `en.json`**; generate other locales with
-  a translation bat (mandatory — never skip).
-- **Bundle `release_notes/` into the build** so the in-app view ships with the binary
-  (PyInstaller: add to spec `datas` + `copy_metadata(<pkg>)`).
-- **In-app view**: load all releases, sort **newest first**, show the latest first
-  with Older/Newer navigation, fall back to `en.json` when a locale is missing.
-
----
-
-## Windows Installer (NSIS)
-
-Ship a single `…Setup.exe`, not a zipped folder. Use **NSIS** (`makensis`) — it is
-the tool already in use across these projects, and a hand-written `.nsi` is ~100
-lines. Do not reach for Inno Setup, WiX, or fbs: fbs generates its NSIS script for
-you but drags in a whole build system, and a plain `uv run pyinstaller` project does
-not need one.
-
-Reusable pieces in `python_setup_files/`:
-
-- `installer/setup.nsi.template` — the script; fill in app name, exe name, company.
-- `tools/build_installer.bat` — packages an existing `dist/<App>/` into the setup exe.
-- `tools/sign_exe.bat` — code-signs one exe via the XIDA network-share handshake.
-
-Conventions:
-
-- **Two separate bats, no chaining.** `tools/compile_exe.bat` freezes;
-  `tools/build_installer.bat` packages and fails with "run compile_exe.bat first" if
-  `dist/` is missing. Neither bat calls the other.
-- **Version and build reach the installer as `/D` defines** from the bat
-  (`/DVERSION= /DBUILD= /DSRCDIR= /DOUTFILE=`), never via the exe's version resource.
-  A bare PyInstaller CLI build has no `--version-file`, so there is no resource to
-  read — the bat owns the label. `tools/version_get.bat` already prints the full
-  `<version>_<build>` label, so read it once and split on `_` rather than also
-  calling `build_get.bat`.
-- **Output** = `dist/<App>Setup_<version>_<build>.exe`, so the filename carries the
-  release label (see **Release Workflow** above).
-- **Exclude the app's own runtime files from the payload**:
-  `File /r /x settings.json /x sessions.db "${SRCDIR}\*.*"`. PyInstaller builds into
-  `dist/`, and every local test run of that exe drops its config and database right
-  beside it. Without the exclusions the installer ships the developer's machine
-  config and personal data to every user. Verify by listing the install directory
-  after a test install — this is not theoretical, it happened.
-- **Per-user install into `$LOCALAPPDATA` with `RequestExecutionLevel user`** whenever
-  the app writes its data next to its own exe (the
-  `DATA_ROOT = Path(sys.executable).parent` pattern). A `C:\Program Files` install
-  cannot write there unelevated. Bonus: no UAC prompt at all.
-- **Kill the running instance before install and uninstall**:
-  `nsExec::Exec 'taskkill /F /IM "${EXENAME}"'`. Ships with Windows, needs no NSIS
-  plugin, and a non-zero exit just means it was not running. Without it, upgrading
-  while the app is open fails on a locked file.
-- **Never delete user data on uninstall.** Remove the program files, shortcuts and
-  the `HKCU\...\Uninstall\<App>` key; leave `settings.json` and the database. Use
-  plain `RMDir` (not `/r`) on the install root so the folder survives when they do.
-- **Registry** goes under `HKCU` (per-user install) with `DisplayName`,
-  `DisplayVersion` = the full label, `Publisher`, `DisplayIcon`, `InstallLocation`,
-  `UninstallString`, `EstimatedSize`.
-- **Signing is opt-in** via `build_installer.bat --sign`, off by default: the XIDA
-  handshake needs the `//XIDA-SERVER` share and takes ~5 minutes per binary, so local
-  test builds stay unsigned. When on, sign the app exe **before** packaging (the
-  signed binary must be the one inside) and the setup exe after. `sign_exe.bat` `cd`s
-  into the release-tool checkout, so it must be handed an **absolute** path.
-- **Test the installer silently**, no clicking: `Setup.exe /S`, then
-  `Uninstall.exe /S`. Check the install dir contents, the Start Menu shortcut, the
-  `HKCU` key, that the installed app can write its database, and that a reinstall
-  over a running instance succeeds.
-
----
-
-# 8 Essential Additional Rules (must-have)
+# Essential Additional Rules (must-have)
 
 ## 1) Use `pyproject.toml` as the single source of truth
 
@@ -1045,6 +726,7 @@ Recommended baseline:
 ---
 
 ## 2) Enforce formatting + linting + type checking in CI
+<!-- steps: review, code -->
 
 Minimum toolchain:
 
@@ -1107,13 +789,8 @@ Rules:
 
 ---
 
-## 6) Database access uses SQLAlchemy ORM
-
-If a database is needed, use SQLAlchemy ORM (not raw SQL or ad-hoc drivers).
-
----
-
-## 7) Use `spec=` with MagicMock to catch interface mismatches
+## 6) Use `spec=` with MagicMock to catch interface mismatches
+<!-- steps: review, code -->
 
 `MagicMock` without `spec` accepts **any** attribute, even non-existent ones:
 
@@ -1179,7 +856,8 @@ with patch("module.ClassName", spec=RealClass) as mock_cls:
 
 ---
 
-## 8) Required Batch Files
+## 7) Required Batch Files
+<!-- steps: code -->
 
 Every project must include these batch files:
 
@@ -1261,7 +939,7 @@ Prefer the Protocol approach for simple cases. Use dataclass metadata when you n
 per-field control without writing boilerplate methods.
 
 # Version
-1
+2
 
 Increase this version number whenever this rule file changes.
 
@@ -1275,6 +953,7 @@ guides are:
 
 - `python_setup_files/MODERN_GUI.md` — PySide6 desktop apps
 - `project_type/FRONTEND.md` — web SPAs (Vite, Tailwind, dark mode)
+- `project_type/SERVER_RENDERED_FRONTEND.md` — server-rendered PHP web frontends (Twig, Bootstrap)
 
 Default UI toolkits ship a *safe* look, not a good one: gradient buttons, boxed tabs,
 every control the same size, no hierarchy. An interface built from defaults reads as a
@@ -1461,14 +1140,11 @@ A restyle is not done because the tests pass — tests do not look at the screen
 - [ ] Every screen rendered and looked at after the change
 
 # Version
-13
+15
 
 Increase this version number whenever this rule file changes.
 
 # graphify Knowledge Graph (Optional Addon)
-
-**Optional.** Before adding this to a project, ASK the user whether they want to use graphify.
-Only wire it into the project's `CODING_RULES.md` if they say yes.
 
 graphify turns a code folder into a queryable knowledge graph — god nodes, communities,
 cross-file relationships, fan-in/fan-out. Use it to orient before grep and to spot god classes.
@@ -1483,70 +1159,10 @@ assets — forcing the LLM pass. **Always scope to the code dir; never build the
 
 ---
 
-## One-time setup
-
-1. **Install the Claude Code integration** (writes a generic graphify section into `CLAUDE.md`
-   plus PreToolUse hooks that consult the graph before grep/read):
-   ```
-   /graphify claude install
-   ```
-2. **Check `.claude/settings.json` for the Windows slash bug.** On Windows the installer writes
-   the hook command with backslash paths, e.g. `C:\\Users\\<you>\\.local\\bin\\graphify.EXE`.
-   Claude Code runs PreToolUse hooks through Git Bash, which strips the backslashes →
-   `C:Users<you>.local...` → `command not found` on every Bash/Read/Glob. Fix: open
-   `.claude/settings.json` and replace the backslashes in the hook `command`(s) with forward
-   slashes — `C:/Users/<you>/.local/bin/graphify.EXE` (Git Bash accepts drive paths with `/`).
-   Also dedupe: the installer may write a redundant backslash `Bash` entry alongside a correct
-   `Bash|Grep` one — keep exactly two entries (`Bash|Grep`, `Read|Glob`), forward slashes.
-   Then confirm it runs: `"C:/Users/<you>/.local/bin/graphify.EXE" hook-guard search`.
-   Note: Claude Code may permission-block edits to `.claude/settings.json` — the user may need
-   to explicitly request/approve the fix. Hooks written mid-session don't load until the user
-   opens `/hooks` once or restarts the session.
-   (Non-Windows hosts are unaffected — skip this step.)
-3. **Build the first graph — scoped and directed.** Point it at the folder that holds the
-   source code, NOT the repo root:
-   ```
-   /graphify <code-dir> --directed        # e.g. src/  app/  lib/  internal/
-   ```
-   - `<code-dir>` = the folder(s) with the code. Scoping keeps `vendor/`, `node_modules/`,
-     build output, and tests out of the graph. A repo-root build drowns the signal in deps AND
-     drags in non-code files (`docs/`, `*.md`, images, audio) that force the paid LLM pass — a
-     scoped code-dir build stays AST-only and free (see intro).
-   - **If first-party code lives in MORE than one top-level dir (e.g. `application/` +
-     `framework/`, `src/` + `lib/`), build ALL of them as one multi-path merged graph:**
-     `/graphify application/ framework/ --directed`. Scoping to only one dir makes every class
-     in the others invisible to every query — the graph then reports "not found" for code that
-     exists, and the miss is indistinguishable from absence. (Real incident: a query for string
-     sanitization helpers returned 61 irrelevant nodes because `FRK_StringHelper` lived in the
-     unscanned `framework/` dir.) List the excluded siblings consciously, never by omission.
-   - `--directed` is **required**. Without it the graph is undirected and total edge count blends
-     incoming and outgoing — you cannot tell a healthy shared base (high fan-**in**) from a god
-     class (high fan-**out**).
-   - **Scoping does not exclude vendored code committed *inside* `<code-dir>`** (e.g.
-     `application/libs/`, `src/vendor/`, a bundled third-party SDK) — those aren't
-     gitignored, so graphify scans them and the graph drowns in someone else's classes
-     instead of yours. Check `<code-dir>` for such folders before the first build; if
-     any exist, add a `.graphifyignore` there first (see "In-tree vendored code" below).
-4. **Relocate the `CLAUDE.md` section** the installer wrote: remove it from `CLAUDE.md` and
-   instead add this file's `# Version` block and document title followed by the "Using" +
-   "Refreshing" rules below to the project's `CODING_RULES.md`, replacing generic `.`/`src`
-   references with the actual `<code-dir>`. **Pin the real code-dir explicitly** (e.g. a
-   "This project's `<code-dir>` is `lib/`" line) so a later rebuild can't default to the repo
-   root and trip the LLM pass. Keeping the version with the copied rules allows
-   `/coding-rules:apply` to detect stale copies.
-5. **gitignore the output** — build artifacts + cache, never committed:
-   ```
-   graphify-out/
-   <code-dir>/graphify-out/
-   ```
-6. **Copy the refresh bat.** Copy `graphify_update.bat` (ships beside this file in
-   `implementation_flow_addons/`) into the project's `tools/` folder and set its `CODE_DIR` to the real
-   code dir. It runs the no-AI live-graph refresh (see "Refreshing after a code change" in
-   `IMPLEMENTATION_FLOW.md`)
-   and then smoke-tests the root graph (`god-nodes` + a sample `query`). See "Manual
-   refresh bat" below.
+Setup instructions live in the coding-rules plugin at `graphify_setup_files/SETUP.md`.
 
 ## Folder layout (know which is which)
+<!-- steps: code -->
 
 - `graphify-out/` at the **project root** = the **live graph** (`graph.json`, `GRAPH_REPORT.md`,
   `graph.html`). The only one queries read. Keep it `directed=True`.
@@ -1566,14 +1182,7 @@ assets — forcing the LLM pass. **Always scope to the code dir; never build the
 
 ---
 
-## Rules to paste into the project's CODING_RULES.md (only if the user opted in)
-
-Prepend this file's `# Version` block and `# graphify Knowledge Graph (Optional Addon)` title
-when copying the following sections. The flow-side sections (the delegate preamble and the
-post-change refresh) live in `graphify_flow.md` and land in `IMPLEMENTATION_FLOW.md` instead —
-opt into both files together.
-
-### Using the graph
+## Using the graph
 
 - For codebase questions, run `graphify query "<question>"` first when `graphify-out/graph.json`
   exists. `graphify path "<A>" "<B>"` for relationships; `graphify explain "<concept>"` for a
@@ -1583,8 +1192,8 @@ opt into both files together.
 - Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review, or when
   query/path/explain do not surface enough context.
 
-
-### Manual refresh bat (`tools/graphify_update.bat`)
+## Manual refresh bat (`tools/graphify_update.bat`)
+<!-- steps: code -->
 
 Copied from the `graphify_update.bat` template beside this addon, adjusted (`CODE_DIR`).
 Run it from anywhere — it `pushd`es to the repo root itself.
@@ -1598,7 +1207,8 @@ Run it from anywhere — it `pushd`es to the repo root itself.
 - **When to use:** after a code change outside an AI session, or as a "is graphify still
   wired up?" check after cloning, a dependency change, or a graphify upgrade.
 
-### In-tree vendored code — exclude it, scoping alone won't
+## In-tree vendored code — exclude it, scoping alone won't
+<!-- steps: code -->
 
 `--directed`-scoping the build to `<code-dir>` keeps external `vendor/`/`node_modules/` out
 automatically, but a **committed** third-party library living *inside* `<code-dir>` (a bundled
@@ -1627,3 +1237,54 @@ Fix once per project:
 4. Verify: grep the vendored library's distinctive class name in the new `graph.json` — it
    should return only first-party code that *uses* the library (e.g. your own `FacebookManager`),
    never the library's own classes.
+
+# Version
+1
+
+Increase this version number whenever this rule file changes.
+
+# Python Web Templates (Jinja2)
+
+Applies on top of `PYTHON_RULES.md` when the project renders web templates.
+
+## Template Engine
+
+Keep Python, HTML, CSS, and JS separated.
+This means using a template engine.
+
+Use Jinja2:
+
+```bash
+uv add jinja2
+```
+
+Do not put JS code into templates. Use separate `.js` files.
+
+Example structure:
+
+```
+project/
+├── app/
+├── templates/
+└── static/
+    ├── css/
+    └── js/
+```
+
+Example template:
+
+```html
+<!-- templates/page.html -->
+<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/css/app.css">
+  </head>
+  <body>
+    <h1>{{ title }}</h1>
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
+```
+
+---
