@@ -2,7 +2,7 @@
 <!-- Step file for code runs, generated from CODING_RULES.md — CODING_RULES.md stays the complete rule set -->
 
 # Version
-14
+15
 
 Increase this version number whenever this rule file changes.
 
@@ -256,12 +256,22 @@ kept to a minimum — a future maintainer (or you, at 3am) has to understand it.
 
 ## Confirm Dependency Versions
 
-Before adding any new package or library, confirm the version with the user to ensure we use
-up-to-date dependencies.
+When adding a new package or library, choose its version yourself from verified facts. Do not
+ask the user to confirm a routine version choice.
 
-- Do not assume which version to use
-- Ask the user to verify the latest stable version
-- Avoid outdated packages that may have security vulnerabilities or missing features
+- Never assume a version from memory: check the authoritative release source (the package
+  registry or the project's official releases) for the latest stable release.
+- Check the project's constraints: runtime/SDK version, the existing lock file, peer
+  dependencies and the package's supported platforms.
+- Use the latest stable release that satisfies them. Skip pre-releases (alpha, beta, rc, dev).
+- Pin or lock the resolved version the way the project already does (lock file, exact pin, or
+  its range convention), and name the chosen version and where it was checked in the plan or
+  change summary.
+- A version the user specified wins.
+- Ask the user only when a real tradeoff remains: the latest stable needs a new major line or a
+  runtime upgrade, supported versions conflict, a security advisory affects the candidate, or
+  the release source cannot be checked.
+- Avoid outdated packages that may have security vulnerabilities or missing features.
 
 ---
 
@@ -927,7 +937,7 @@ Prefer the Protocol approach for simple cases. Use dataclass metadata when you n
 per-field control without writing boilerplate methods.
 
 # Version
-2
+3
 
 Increase this version number whenever this rule file changes.
 
@@ -1102,13 +1112,20 @@ fragments — translate the whole sentence with placeholders.
 
 A restyle is not done because the tests pass — tests do not look at the screen.
 
-- Render each screen to an image (offscreen/headless is fine and deterministic) and
-  actually look at all of them after a change.
+- Render each screen to an image and actually look at all of them after a change.
+  Offscreen/headless rendering is fine for quick, deterministic checks.
+- Automatic screenshots of the real running app are allowed and wanted — to verify a
+  task and to produce promotional images (store pages, manuals). Take them with the
+  `automated-application-screenshots` tool and the app's connector (Python, Flutter or
+  web). The connector drives the app from inside its own process — calling a button's
+  click, setting a field's text, opening a screen — so no input can reach another
+  application.
 - Check the app at its smallest supported size, not just the size it opens at.
 - Automate what an image cannot assert: no minimum-size rule in the theme, a focus style
   on every control, a recolored icon that still has pixels.
-- Never drive a real window with synthetic mouse clicks to capture screenshots — the
-  moment focus moves, those clicks land in someone else's application.
+- Never send OS-level synthetic mouse or keyboard input (moving the cursor, injected
+  clicks or key presses) to a real window — the moment focus moves, that input lands in
+  someone else's application. This forbids the input method, not screenshots.
 
 ---
 
