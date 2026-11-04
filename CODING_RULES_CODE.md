@@ -2,7 +2,7 @@
 <!-- Step file for code runs, generated from CODING_RULES.md — CODING_RULES.md stays the complete rule set -->
 
 # Version
-15
+16
 
 Increase this version number whenever this rule file changes.
 
@@ -317,6 +317,7 @@ The logger's name is fixed per language so it is the same known type in every pr
 | Unity C#      | `GameLog` (static) | `GameLog.cs`        |
 | Svelte/JS/TS  | `logger` (export)  | `logger.ts`         |
 | Arduino       | `Log`              | `Log.h` / `Log.cpp` |
+| Rust          | `log` / `tracing` facade, `app_logger::init()` | `app_logger.rs` |
 
 ---
 
@@ -388,6 +389,15 @@ third-party APIs.
   last line of defence, not as permission to skip the order.
 - **Setting it up** is work in each project: when one project of the system lacks the submodule
   or its test, request it there (linked todo or `/feedback:write`).
+
+---
+
+## Upstream Forks
+
+In a fork that merges changes from an upstream project, these rules apply to new and changed code
+only. Do not reformat, rename, move, or refactor upstream code that the task does not need. Prefer
+new files for features, and keep project-specific setup in new files plus the `CLAUDE.md` pointer
+so upstream merges stay clean.
 
 ---
 
@@ -937,7 +947,7 @@ Prefer the Protocol approach for simple cases. Use dataclass metadata when you n
 per-field control without writing boilerplate methods.
 
 # Version
-3
+4
 
 Increase this version number whenever this rule file changes.
 
@@ -950,6 +960,7 @@ They are about **decisions**, not about a framework. The per-stack implementatio
 guides are:
 
 - `python_setup_files/MODERN_GUI.md` — PySide6 desktop apps
+- `rust/SLINT.md` — Slint desktop apps (Rust)
 - `project_type/FRONTEND.md` — web SPAs (Vite, Tailwind, dark mode)
 - `project_type/SERVER_RENDERED_FRONTEND.md` — server-rendered PHP web frontends (Twig, Bootstrap)
 
